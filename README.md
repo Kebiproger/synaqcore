@@ -15,7 +15,7 @@
   </p>
 
   <p>
-    <img src="https://img.shields.io/github/license/yourorg/synaqcore?style=flat-square" alt="License">
+    <img src="https://img.shields.io/github/license/Kebiproger/synaqcore?style=flat-square" alt="License">
     <img src="https://img.shields.io/badge/status-production%20ready-2ea44f?style=flat-square" alt="Status">
   </p>
 </div>
@@ -163,7 +163,7 @@ bucket = (int(hash_hex, 16) % 10000) / 100.0  # → 0.00 .. 99.99
 
 ```bash
 # 1. Клонировать репозиторий
-git clone https://github.com/yourorg/synaqcore.git
+git clone https://github.com/Kebiproger/synaqcore.git
 cd synaqcore
 
 # 2. Настроить окружение (опционально)
