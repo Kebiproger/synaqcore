@@ -322,8 +322,9 @@ synaqcore/
 │   ├── nginx.conf                  # Конфигурация Reverse Proxy шлюза
 │   └── docker-compose.yml          # Compose спецификация шлюза
 ├── tests/                          # Интеграционные тесты, схемы и нагрузочные профили
-├── SYSTEM_DESIGN.md                # Детальный System Design Document (SDD)
-├── REFACTORING.md                  # Спецификация миграции и оптимизации
+├── docs/                           # Архитектурная документация и спецификации
+│   ├── SYSTEM_DESIGN.md            # Детальный System Design Document (SDD)
+│   └── REFACTORING.md              # Спецификация миграции и оптимизации
 ├── docker-compose.yml              # Корневой include-файл для всей системы
 └── .gitignore                      # Исключение секретов, артефактов и бинарников
 ```
