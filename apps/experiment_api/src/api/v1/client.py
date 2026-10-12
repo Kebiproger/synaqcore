@@ -68,3 +68,18 @@ async def get_variant(
         user_id=user_id,
         variant=variant
     )
+
+
+@router.get("/active")
+async def list_active_experiments(session: AsyncSession = Depends(get_session)):
+    """Публичный эндпоинт: список активных экспериментов для выбора в клиентских приложениях"""
+    repo = ExperimentRepository(session)
+    exps = await repo.list_all()
+    return [
+        {
+            "name": e.name,
+            "url": e.url,
+            "variants": list(e.variants.keys()),
+        }
+        for e in exps if e.is_active
+    ]

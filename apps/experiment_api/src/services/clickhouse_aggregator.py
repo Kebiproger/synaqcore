@@ -83,6 +83,73 @@ def _validate_experiment_name(name: str) -> None:
 #  1. Базовый анализ (Core Metrics)
 # ──────────────────────────────────────────────
 
+async def fetch_basic_stats(experiment_name: str) -> dict:
+    """Агрегированная сводка по событиям эксперимента для вкладки Базовая статистика."""
+    _validate_experiment_name(experiment_name)
+
+    summary = await _ch_query(f"""
+        SELECT
+            variant,
+            count() AS total_events,
+            countDistinct(user_id) AS unique_users,
+            toString(min(timestamp)) AS first_event,
+            toString(max(timestamp)) AS last_event
+        FROM tracking_events
+        WHERE experiment_name = '{experiment_name}'
+        GROUP BY variant
+        ORDER BY variant
+    """)
+
+    by_event = await _ch_query(f"""
+        SELECT
+            variant,
+            event_name,
+            count() AS cnt,
+            countDistinct(user_id) AS users
+        FROM tracking_events
+        WHERE experiment_name = '{experiment_name}'
+        GROUP BY variant, event_name
+        ORDER BY variant, event_name
+    """)
+
+    funnel = await _ch_query(f"""
+        SELECT
+            pv.variant AS variant,
+            pv.views AS views,
+            COALESCE(cc.clicks, 0) AS clicks,
+            round(COALESCE(cc.clicks, 0) / if(pv.views = 0, 1, pv.views) * 100, 1) AS conversion_pct
+        FROM (
+            SELECT variant, countDistinct(user_id) AS views
+            FROM tracking_events
+            WHERE experiment_name = '{experiment_name}' AND event_name = 'page_view'
+            GROUP BY variant
+        ) pv
+        LEFT JOIN (
+            SELECT variant, countDistinct(user_id) AS clicks
+            FROM tracking_events
+            WHERE experiment_name = '{experiment_name}' AND event_name = 'cta_click'
+            GROUP BY variant
+        ) cc ON pv.variant = cc.variant
+        ORDER BY pv.variant
+    """)
+
+    recent = await _ch_query(f"""
+        SELECT toString(timestamp) AS timestamp, user_id, event_name, variant, event_data
+        FROM tracking_events
+        WHERE experiment_name = '{experiment_name}'
+        ORDER BY timestamp DESC
+        LIMIT 20
+    """)
+
+    return {
+        "experiment": experiment_name,
+        "summary": summary,
+        "by_event": by_event,
+        "funnel": funnel,
+        "recent": recent,
+    }
+
+
 async def fetch_base_metrics(experiment_name: str) -> List[dict]:
     """Базовые метрики: пользователи, события, конверсии по вариантам.
 

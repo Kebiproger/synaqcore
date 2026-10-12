@@ -312,8 +312,12 @@
         
         try {
             // Запрашиваем умный анализ
-            const res = await apiFetch(`/api/v1/stats/${encodeURIComponent(name)}?method=both&segments=platform,user_tenure,traffic_source`);
-            if (!res.ok) { panel.innerHTML = 'Ошибка загрузки'; return; }
+            const res = await apiFetch(`/api/v1/stats/${encodeURIComponent(name)}?method=both&goal_event=cta_click&segments=platform,user_tenure,traffic_source`);
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                panel.innerHTML = `<div style="color:#d93025;padding:12px;background:#fce8e6;border-radius:8px;font-size:13px;">⚠️ ${err.detail || 'Ошибка загрузки'}</div>`;
+                return;
+            }
             const d = await res.json();
             
             let html = '';
@@ -487,20 +491,28 @@
         panel.innerHTML = 'Загрузка...';
         
         try {
-            // Используем старый endpoint для базовой статистики
-            const res = await apiFetch(`/api/v1/stats/${encodeURIComponent(name)}`);
-            if (!res.ok) { panel.innerHTML = 'Ошибка загрузки'; return; }
+            // Используем эндпоинт базовой статистики
+            const res = await apiFetch(`/api/v1/stats/${encodeURIComponent(name)}/basic`);
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                panel.innerHTML = `<div style="color:#d93025;padding:12px;background:#fce8e6;border-radius:8px;font-size:13px;">⚠️ ${err.detail || 'Ошибка загрузки'}</div>`;
+                return;
+            }
             const d = await res.json();
             
             let html = '';
             
             // Сводка
             html += '<h4>Сводка</h4>';
-            html += '<table><tr><th>Вариант</th><th>Событий</th><th>Пользователей</th><th>Первый</th><th>Последний</th></tr>';
-            for (const s of d.summary) {
-                html += `<tr><td><strong>${s.variant}</strong></td><td>${s.total_events}</td><td>${s.unique_users}</td><td>${s.first_event}</td><td>${s.last_event}</td></tr>`;
+            if (d.summary && d.summary.length > 0) {
+                html += '<table><tr><th>Вариант</th><th>Событий</th><th>Пользователей</th><th>Первый</th><th>Последний</th></tr>';
+                for (const s of d.summary) {
+                    html += `<tr><td><strong>${s.variant}</strong></td><td>${s.total_events}</td><td>${s.unique_users}</td><td>${s.first_event || '-'}</td><td>${s.last_event || '-'}</td></tr>`;
+                }
+                html += '</table>';
+            } else {
+                html += '<p style="color:#666;font-size:13px;padding:8px 0;">Пока нет зарегистрированных событий в ClickHouse для этого эксперимента.</p>';
             }
-            html += '</table>';
             
             // Конверсия
             if (d.funnel && d.funnel.length > 0) {

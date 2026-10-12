@@ -8,7 +8,11 @@ services:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf
     networks:
       - ab_testing_net
+    restart: unless-stopped
+    depends_on:
+      - experiment_api
+      - track_api
 
 networks:
   ab_testing_net:
-    external: true
+    name: ab_testing_net

@@ -1,3 +1,0 @@
-aio-pika
-clickhouse-connect
-pydantic-settings

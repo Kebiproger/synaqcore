@@ -2,7 +2,7 @@ services:
   experiment_api:
     container_name: experiment_api
     build: experiment_api
-    env_file: ../.env
+    env_file: .env.apps
     expose:
       - "8000"
     networks:
@@ -10,19 +10,25 @@ services:
     volumes:
       - ./experiment_api:/app
     command: "uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload"
-
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    
   track_api:
     container_name: track_api
-    build: track_api
-    env_file: ../.env
+    build: track_api_go
+    env_file: .env.apps
     expose:
       - "8000"
     networks:
       - ab_testing_net
-    volumes:
-      - ./track_api:/app
-    command: "uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload"
+    depends_on:
+      redpanda-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
 networks:
   ab_testing_net:
-    external: true
+    name: ab_testing_net

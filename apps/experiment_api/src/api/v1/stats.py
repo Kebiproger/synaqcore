@@ -25,6 +25,7 @@ from fastapi import APIRouter, HTTPException, Query
 # --- ClickHouse ---
 from src.services.clickhouse_aggregator import (
     fetch_all_metrics,
+    fetch_basic_stats,
     fetch_outlier_data,
     fetch_user_event_counts,
     _validate_experiment_name,
@@ -55,6 +56,12 @@ _seg_analyzer = SegmentationAnalyzer()
 _funnel_analyzer = FunnelAnalyzer()
 _outlier_detector = OutlierDetector()
 _recommender = RecommendationEngine()
+
+
+@router.get("/{experiment_name}/basic")
+async def get_basic_stats_endpoint(experiment_name: str):
+    """Базовая статистика по событиям эксперимента (сводка, типы событий, воронка, последние события)."""
+    return await fetch_basic_stats(experiment_name)
 
 
 @router.get("/{experiment_name}")

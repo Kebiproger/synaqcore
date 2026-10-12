@@ -40,6 +40,7 @@ app.include_router(client.router, prefix="/api/v1")
 app.include_router(stats.router, prefix="/api/v1")
 
 @app.get("/admin", response_class=HTMLResponse)
+@app.get("/admin/", response_class=HTMLResponse)
 def admin_page():
     return Path("src/templates/admin.html").read_text(encoding="utf-8")
 

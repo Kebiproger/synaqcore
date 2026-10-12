@@ -1,7 +1,36 @@
-.agents/
-venv/
-test_code.py
+# Environment & Secrets
 .env
+.env.*
+*.env
+apps/.env.apps
+infra/.env.infra
+!*.env.example
+!apps/.env.apps.example
+!infra/.env.infra.example
+
+# Python
+venv/
+.venv/
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 .pytest_cache/
+.coverage
+htmlcov/
+
+# Go
+apps/track_api_go/bin/
+apps/track_api_go/track_api
+apps/track_api_go/.docs/
+
+# IDE & OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Agent & temporary files
+.agents/
+test_code.py

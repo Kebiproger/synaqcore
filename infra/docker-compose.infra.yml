@@ -12,25 +12,46 @@ services:
       timeout: 3s
       retries: 5
 
-  rabbitmq:
-    container_name: rabbitmq
-    image: rabbitmq:3.13-management
-    ports:
-      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+  redpanda:
+    image: redpandadata/redpanda:v26.2.4
+    command:
+      - redpanda start
+      - --smp 1
+      - --memory 1G
+      - --set auto_create_topics_enabled=true 
+      - --overprovisioned
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://${KAFKA_EXTERNAL_HOST:-127.0.0.1}:${KAFKA_EXTERNAL_PORT:-9092}
+    # ports:
+    #  - "127.0.0.1:${KAFKA_EXTERNAL_PORT}:19092" 
     volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
+     - redpanda_data:/var/lib/redpanda/data
     networks:
-      - ab_testing_net
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+     - ab_testing_net 
+    healthcheck:                                           # Healthy: true в оригинале, но команда выводит с 20 пробелами и поэтому поставили регулярку
+      test: ["CMD-SHELL", "rpk cluster health | grep -E -q 'Healthy:[[:space:]]+true' || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 5
 
+  redpanda-init:
+    image: redpandadata/redpanda:v26.2.4
+    container_name: redpanda-init
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      - RPK_BROKERS=redpanda:9092
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+     - "rpk topic create tracking_events --partitions 4 --if-not-exists"
+    networks:
+     - ab_testing_net 
+
   postgres:
     container_name: postgres
     image: postgres:16-alpine
-    env_file: ../.env
+    env_file: .env.infra
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
@@ -44,7 +65,7 @@ services:
   clickhouse:
     container_name: clickhouse
     image: clickhouse/clickhouse-server:24.8
-    env_file: ../.env
+    env_file: .env.infra
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - ./clickhouse/init:/docker-entrypoint-initdb.d
@@ -56,25 +77,11 @@ services:
       timeout: 3s
       retries: 5
 
-  worker_collector:
-    build:
-      context: ./worker_collector
-    restart: unless-stopped
-    env_file:
-      - ../.env
-    networks:
-      - ab_testing_net
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      clickhouse:
-        condition: service_healthy
-
 volumes:
   redis_data:
-  rabbitmq_data:
   clickhouse_data:
   postgres_data:
+  redpanda_data:
 
 networks:
   ab_testing_net:
