@@ -3,12 +3,18 @@ services:
     container_name: experiment_api
     build: experiment_api
     env_file: .env.apps
-    expose:
-      - "8000"
+    environment:
+      # Zitadel OIDC; можно переопределить в shell/корневом .env
+      OIDC_ISSUER: ${OIDC_ISSUER:-http://localhost:${ZITADEL_PORT:-8081}}
+      OIDC_JWKS_URL: ${OIDC_JWKS_URL:-http://zitadel:8080/oauth/v2/keys}
+      OIDC_JWKS_HOST: ${OIDC_JWKS_HOST:-localhost:${ZITADEL_PORT:-8081}}
+      OIDC_CONFIG_FILE: ${OIDC_CONFIG_FILE:-/zitadel-public/oidc.json}
     networks:
       - ab_testing_net
     volumes:
       - ./experiment_api:/app
+      # Публичная OIDC-конфигурация (issuer, project_id, client_id) от zitadel-init
+      - ../infra/zitadel/public:/zitadel-public:ro
     command: "uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload"
     depends_on:
       postgres:
@@ -20,13 +26,73 @@ services:
     container_name: track_api
     build: track_api_go
     env_file: .env.apps
-    expose:
-      - "8000"
     networks:
       - ab_testing_net
     depends_on:
       redpanda-init:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8000/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
+  analytics_api:
+    container_name: analytics_api
+    build: analytics_api
+    env_file: .env.apps
+    environment:
+      # Zitadel OIDC; можно переопределить в shell/корневом .env
+      OIDC_ISSUER: ${OIDC_ISSUER:-http://localhost:${ZITADEL_PORT:-8081}}
+      OIDC_JWKS_URL: ${OIDC_JWKS_URL:-http://zitadel:8080/oauth/v2/keys}
+      OIDC_JWKS_HOST: ${OIDC_JWKS_HOST:-localhost:${ZITADEL_PORT:-8081}}
+      OIDC_CONFIG_FILE: ${OIDC_CONFIG_FILE:-/zitadel-public/oidc.json}
+    networks:
+      - ab_testing_net
+    volumes:
+      - ./analytics_api:/app
+      - ../infra/zitadel/public:/zitadel-public:ro
+    command: "uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:8000/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
+  # SPA-дашборд (статика за nginx-unprivileged, uid 101). Наружу — только через gateway (/dashboard/).
+  dashboard:
+    container_name: dashboard
+    build: ./dashboard
+    environment:
+      ZITADEL_ORIGIN: http://localhost:${ZITADEL_PORT:-8081}
+    # Hardening: корневая ФС только для чтения, без capabilities.
+    # nginx-unprivileged пишет только в /tmp (pid, *_temp) и /etc/nginx/conf.d
+    # (envsubst рендерит шаблоны при старте); логи идут в stdout/stderr.
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:uid=101,gid=101,mode=0755,size=16m
+      - /etc/nginx/conf.d:uid=101,gid=101,mode=0755,size=1m
+    volumes:
+      # oidc.json (issuer, client_id) от zitadel-init; файл 644 — читается uid 101
+      - ../infra/zitadel/public:/zitadel-public:ro
+    networks:
+      - ab_testing_net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
     restart: unless-stopped
 
 networks:

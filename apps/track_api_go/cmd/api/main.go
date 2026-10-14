@@ -17,15 +17,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const (
-	TopicABEvents = "tracking_events"
-)
+func getEnv(key , defaultValue string) string{
+	if value := os.Getenv(key); value != ""{
+		return value
+	}
+	return defaultValue
+}
 
 func main(){
-	rawBrokers := os.Getenv("KAFKA_BROKERS")
-	if rawBrokers == "" {
-		rawBrokers = "localhost:9092"
-	}
+	rawBrokers := getEnv("KAFKA_BROKERS","localhost:9092")
+	TopicABEvents := getEnv("TOPIC","tracking_events")
+	
 	var brokers []string
 
 	for _, b := range strings.Split(rawBrokers,","){
@@ -48,6 +50,9 @@ func main(){
 
 	
 	router := gin.Default()
+	router.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "OK"})
+	})
 	api := router.Group("api/v1/tracker")
 	                // применяем функцию моего track package? Который возвращает структуру
 	trackHandler := track.NewHandler(producer, TopicABEvents)
@@ -70,6 +75,7 @@ func main(){
 	log.Println("Получен сигнал завершения работы, останавливаем сервис...")
 
 	stopHttpCtx, cancelHttp := context.WithTimeout(context.Background(), 5*time.Second)
+	
 	defer cancelHttp()
 	if err := srv.Shutdown(stopHttpCtx); err != nil{
 		log.Printf("Ошибка при остановке HTTP-сервера: %v", err)

@@ -18,6 +18,7 @@ GET /api/v1/stats/{experiment_name}
   - monthly_traffic: трафик для масштабирования ARPU
 """
 
+import asyncio
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -67,7 +68,7 @@ async def get_basic_stats_endpoint(experiment_name: str):
 @router.get("/{experiment_name}")
 async def analyze_experiment(
     experiment_name: str,
-    method: str = Query("both", regex="^(frequentist|bayesian|both)$"),
+    method: str = Query("both", pattern="^(frequentist|bayesian|both)$"),
     goal_event: str = Query("purchase", min_length=1, max_length=50),
     segments: str = Query("platform,user_tenure", max_length=300),
     hide: str = Query("", max_length=300),
@@ -146,7 +147,8 @@ async def analyze_experiment(
     stat_result = None
 
     try:
-        stat_result = _stat_analyzer.analyze(
+        stat_result = await asyncio.to_thread(
+            _stat_analyzer.analyze,
             conversions_variant=var_conversions,
             total_variant=var_users,
             conversions_control=ctrl_conversions,

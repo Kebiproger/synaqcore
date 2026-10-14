@@ -14,6 +14,7 @@ import (
 )
 
 type TrackEvent struct{
+	EventId string `json:"event_id"`
 	UserId string `json:"user_id" binding:"required"`
 	EventName string `json:"event_name" binding:"required"`
     Timestamp    int64  `json:"timestamp"`     
@@ -34,7 +35,7 @@ func NewHandler(producer kafka.Producer, topic string) *Handler{
 
 func (h *Handler) HandleTrack(c *gin.Context){
 	var event TrackEvent
-	// Сперва обработки ошибки + по памяти
+	// Сперва обработки ошибки + по ячейке памяти &event
 	if err:= c.ShouldBindJSON(&event); err != nil{
 		c.JSON(400, gin.H{"error":"неправильный ввод"})
 		return // почему пустой return
@@ -43,13 +44,14 @@ func (h *Handler) HandleTrack(c *gin.Context){
 	if event.Timestamp == 0 {
 		event.Timestamp = time.Now().UnixMilli()
 	}
+	
 	payload, err := json.Marshal(event)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error":"ошибка сериализации event"})
 		return
 	}
 
-	h.producer.PublishAsync(context.Background(), h.topic,[]byte(event.UserId), payload , func(r *kgo.Record, err error){
+	h.producer.PublishAsync(context.Background(), h.topic, []byte(event.UserId), payload , func(r *kgo.Record, err error){
 	if err != nil{
 		log.Printf("Ошибка доставки сообщении в Kafka %v", err)
 	}

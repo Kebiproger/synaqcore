@@ -1,3 +1,24 @@
+# Общие переменные Zitadel (YAML-якоря). Значения ${...} интерполируются
+# из infra/.env.infra (см. include в корневом docker-compose.yml).
+x-zitadel-db-env: &zitadel-db-env
+  ZITADEL_DATABASE_POSTGRES_HOST: postgres
+  ZITADEL_DATABASE_POSTGRES_PORT: 5432
+  ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
+  ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
+  ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
+  ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: ${ZITADEL_DATABASE_POSTGRES_USER_PASSWORD:?задайте в infra/.env.infra}
+
+x-zitadel-runtime-env: &zitadel-runtime-env
+  ZITADEL_MASTERKEY: ${ZITADEL_MASTERKEY:?задайте в infra/.env.infra (ровно 32 символа)}
+  ZITADEL_PORT: 8080
+  ZITADEL_EXTERNALDOMAIN: localhost
+  # Должен совпадать с опубликованным портом gateway для Zitadel
+  ZITADEL_EXTERNALPORT: ${ZITADEL_PORT:-8081}
+  ZITADEL_EXTERNALSECURE: "false"
+  ZITADEL_TLS_ENABLED: "false"
+  # --- Логин: встроенный UI v1 ---
+  ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: "false"
+
 services:
   redis:
     container_name: redis
@@ -61,6 +82,120 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+  # ----------------------------------------------------------------------------
+  # Zitadel — IdP (OIDC/OAuth2). Наружу публикуется только через gateway
+  # (127.0.0.1:${ZITADEL_PORT:-8081}). Жизненный цикл разделён на три сервиса,
+  # чтобы учётка суперпользователя postgres не жила в долгоживущем контейнере:
+  #   zitadel-dbinit  `init`  — создаёт БД `zitadel` и пользователя `zitadel`
+  #                    (admin-подключение = суперпользователь postgres), одноразовый;
+  #   zitadel-setup   `setup` — миграции, первый инстанс, bootstrap-PAT; одноразовый;
+  #   zitadel         `start` — рантайм, только непривилегированный пользователь БД.
+  # Все три шага идемпотентны и прогоняются при каждом `docker compose up`.
+  # Используется встроенный Login UI v1 (LOGINV2_REQUIRED=false) — без отдельного
+  # контейнера zitadel-login.
+  #
+  # Внимание: ZITADEL_PORT внутри контейнера (8080) — порт самого Zitadel, а
+  # ${ZITADEL_PORT:-8081} в интерполяции — опубликованный порт gateway (host).
+  # ----------------------------------------------------------------------------
+  zitadel-dbinit:
+    container_name: zitadel-dbinit
+    image: ghcr.io/zitadel/zitadel:v4.19.4
+    user: "${ZITADEL_UID:-1000}:${ZITADEL_GID:-1000}"
+    command: init
+    environment:
+      <<: *zitadel-db-env
+      # Admin-подключение = суперпользователь postgres (те же значения, что POSTGRES_USER/POSTGRES_PASSWORD).
+      # Нужно только здесь; setup и start его не получают.
+      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: ${ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME:?задайте в infra/.env.infra}
+      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: ${ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD:?задайте в infra/.env.infra}
+      ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
+      ZITADEL_DATABASE_POSTGRES_ADMIN_EXISTINGDATABASE: postgres
+    networks:
+      - ab_testing_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  zitadel-setup:
+    container_name: zitadel-setup
+    image: ghcr.io/zitadel/zitadel:v4.19.4
+    # Образ на scratch, uid 1000 — совпадает с владельцем bind-mount каталога secrets
+    user: "${ZITADEL_UID:-1000}:${ZITADEL_GID:-1000}"
+    command: setup --masterkeyFromEnv --tlsMode disabled
+    environment:
+      <<: [*zitadel-db-env, *zitadel-runtime-env]
+      # --- Первый инстанс (применяется только при самом первом setup) ---
+      ZITADEL_FIRSTINSTANCE_ORG_NAME: SynaqCore
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: ${ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME:?задайте в infra/.env.infra}
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: ${ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD:?задайте в infra/.env.infra}
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: "true"
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_EMAIL_VERIFIED: "true"
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME: zitadel-bootstrap
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME: Bootstrap service account
+      # Срок bootstrap-PAT (IAM owner). Статическое значение, учитывается только при
+      # самом первом setup; задайте ≈ now+30d, напр.: date -u -d '+30 days' +%Y-%m-%dT00:00:00Z
+      # PAT удаляется с диска zitadel-init после успешного bootstrap.
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE: ${ZITADEL_BOOTSTRAP_PAT_EXPIRATION:?задайте в infra/.env.infra срок bootstrap-PAT (ISO-8601, ≈ now+30d)}
+      ZITADEL_FIRSTINSTANCE_PATPATH: /zitadel-secrets/bootstrap.pat
+    volumes:
+      - ./zitadel/secrets:/zitadel-secrets
+    networks:
+      - ab_testing_net
+    depends_on:
+      zitadel-dbinit:
+        condition: service_completed_successfully
+    restart: "no"
+
+  zitadel:
+    container_name: zitadel
+    image: ghcr.io/zitadel/zitadel:v4.19.4
+    user: "${ZITADEL_UID:-1000}:${ZITADEL_GID:-1000}"
+    command: start --masterkeyFromEnv --tlsMode disabled
+    # Только нужные переменные (не весь .env.infra), без admin-учётки БД и first-instance.
+    environment:
+      <<: [*zitadel-db-env, *zitadel-runtime-env]
+    networks:
+      - ab_testing_net
+    depends_on:
+      zitadel-setup:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/app/zitadel", "ready"]
+      interval: 10s
+      timeout: 30s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
+  # Одноразовая идемпотентная настройка: проект, роли, OIDC-приложение, сервисный аккаунт.
+  zitadel-init:
+    container_name: zitadel-init
+    build: ./zitadel
+    user: "${ZITADEL_UID:-1000}:${ZITADEL_GID:-1000}"
+    environment:
+      ZITADEL_URL: http://zitadel:8080
+      ZITADEL_HOST: localhost:${ZITADEL_PORT:-8081}
+      ZITADEL_ISSUER: http://localhost:${ZITADEL_PORT:-8081}
+      PAT_FILE: /zitadel-secrets/bootstrap.pat
+      SECRETS_DIR: /zitadel-secrets
+      PUBLIC_DIR: /zitadel-public
+      DASHBOARD_REDIRECT_URI: http://localhost:${GATEWAY_PORT:-8080}/dashboard/callback
+      DASHBOARD_POST_LOGOUT_URI: http://localhost:${GATEWAY_PORT:-8080}/dashboard/
+      # devMode OIDC-приложения (разрешает http redirect URI). Для прода с https — false.
+      ZITADEL_APP_DEVMODE: ${ZITADEL_APP_DEVMODE:-true}
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: ${ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME:?задайте в infra/.env.infra}
+    volumes:
+      - ./zitadel/secrets:/zitadel-secrets
+      - ./zitadel/public:/zitadel-public
+      - ./zitadel/bootstrap.sh:/bootstrap.sh:ro
+    command: ["/bin/sh", "/bootstrap.sh"]
+    networks:
+      - ab_testing_net
+    depends_on:
+      zitadel:
+        condition: service_healthy
 
   clickhouse:
     container_name: clickhouse

@@ -1,4 +1,7 @@
 include:
-  - infra/docker-compose.infra.yml
+  # .env.infra также используется для интерполяции ${...} в infra-compose (ZITADEL_*).
+  # Приоритет: переменные shell > корневой .env > infra/.env.infra.
+  - path: infra/docker-compose.infra.yml
+    env_file: infra/.env.infra
   - apps/docker-compose.apps.yml
   - nginx/docker-compose.yml

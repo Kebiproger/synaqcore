@@ -1,0 +1,39 @@
+{
+  "name": "@synaq/client",
+  "version": "1.0.0",
+  "description": "Легковесный Zero-dependency Client SDK для A/B тестирования и аналитики платформы SynaqCore",
+  "main": "synaq.js",
+  "module": "synaq.js",
+  "types": "synaq.d.ts",
+  "exports": {
+    ".": {
+      "import": "./synaq.js",
+      "require": "./synaq.js",
+      "types": "./synaq.d.ts"
+    },
+    "./react": "./react.jsx"
+  },
+  "scripts": {
+    "test": "node -e \"const SynaqClient = require('./synaq.js'); console.log('SDK Loaded successfully')\""
+  },
+  "keywords": [
+    "ab-testing",
+    "experimentation",
+    "feature-flags",
+    "analytics",
+    "synaqcore"
+  ],
+  "author": "SynaqCore Team",
+  "license": "MIT",
+  "files": [
+    "synaq.js",
+    "synaq.d.ts",
+    "react.jsx",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kebi/synaqcore.git"
+  },
+  "dependencies": {}
+}

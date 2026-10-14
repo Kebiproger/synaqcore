@@ -1,8 +1,9 @@
-"""Тесты Pydantic-схем: ExperimentConfigCreate, VariantResponse.
+"""Тесты Pydantic-схем: ExperimentConfigCreate, ExperimentUpdate, VariantResponse.
 
 Валидация:
-  - name: 1-50 символов
-  - variants: все веса > 0 (сумма НЕ обязана быть 100 — алгоритм нормализует)
+  - name: 1-50 символов, ^[A-Za-z0-9_.-]+$, не 'active' / 'config'
+  - variants: 1-20 вариантов, ключ 1-50 символов ^[A-Za-z0-9_-]+$,
+    все веса > 0 (сумма НЕ обязана быть 100 — алгоритм нормализует)
   - config: опциональный Dict[str, Any]
   - url: опциональный, max 200 символов
   - is_active: bool, по умолчанию True
@@ -10,7 +11,7 @@
 
 import pytest
 from pydantic import ValidationError
-from src.schemas.experiment import ExperimentConfigCreate, VariantResponse
+from src.schemas.experiment import ExperimentConfigCreate, ExperimentUpdate, VariantResponse
 
 
 # ────────────────────────────────
@@ -93,13 +94,67 @@ class TestInvalidExperiments:
             ExperimentConfigCreate(name="no_variants")  # type: ignore[call-arg]
 
     def test_empty_variants_dict(self):
-        """Пустой словарь — нет ошибки, но 'control' на выдаче."""
-        exp = ExperimentConfigCreate(name="empty", variants={})
-        assert exp.variants == {}
+        """Пустой словарь вариантов теперь запрещён (минимум 1 вариант)."""
+        with pytest.raises(ValidationError):
+            ExperimentConfigCreate(name="empty", variants={})
+
+    @pytest.mark.parametrize("name", [
+        "test exp", "<script>alert(1)</script>", "test'exp", "test/exp", "тест", "test;drop", "a\nb",
+    ])
+    def test_invalid_name_chars(self, name):
+        with pytest.raises(ValidationError):
+            ExperimentConfigCreate(name=name, variants={"A": 100})
+
+    @pytest.mark.parametrize("name", ["test_exp_1", "test.exp-2", "A", "a" * 50])
+    def test_valid_name_chars(self, name):
+        assert ExperimentConfigCreate(name=name, variants={"A": 100}).name == name
+
+    @pytest.mark.parametrize("name", ["active", "config", "Active", "CONFIG"])
+    def test_reserved_names(self, name):
+        with pytest.raises(ValidationError, match="зарезервировано"):
+            ExperimentConfigCreate(name=name, variants={"A": 100})
+
+    def test_too_many_variants(self):
+        with pytest.raises(ValidationError):
+            ExperimentConfigCreate(name="many", variants={f"v{i}": 1 for i in range(21)})
+
+    def test_max_variants_ok(self):
+        exp = ExperimentConfigCreate(name="many", variants={f"v{i}": 1 for i in range(20)})
+        assert len(exp.variants) == 20
+
+    @pytest.mark.parametrize("key", ["", "a b", "<b>", "A.B", "вариант", "k" * 51])
+    def test_invalid_variant_key(self, key):
+        with pytest.raises(ValidationError):
+            ExperimentConfigCreate(name="bad_key", variants={key: 100})
+
+    @pytest.mark.parametrize("key", ["A", "control", "variant_b-2", "k" * 50])
+    def test_valid_variant_key(self, key):
+        assert ExperimentConfigCreate(name="good_key", variants={key: 100}).variants == {key: 100}
 
     def test_all_negative_weights(self):
         with pytest.raises(ValidationError, match="положительн"):
             ExperimentConfigCreate(name="all_neg", variants={"A": -1, "B": -2})
+
+
+# ────────────────────────────────
+# ExperimentUpdate
+# ────────────────────────────────
+
+class TestExperimentUpdate:
+
+    @pytest.mark.parametrize("variants", [
+        {},
+        {f"v{i}": 1 for i in range(21)},
+        {"a b": 1},
+        {"": 1},
+        {"k" * 51: 1},
+    ])
+    def test_invalid_variants(self, variants):
+        with pytest.raises(ValidationError):
+            ExperimentUpdate(variants=variants)
+
+    def test_valid_variants(self):
+        assert ExperimentUpdate(variants={"A": 1, "B_2": 3}).variants == {"A": 1, "B_2": 3}
 
 
 # ────────────────────────────────

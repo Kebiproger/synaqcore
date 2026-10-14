@@ -34,3 +34,8 @@ Thumbs.db
 # Agent & temporary files
 .agents/
 test_code.py
+
+# Zitadel: сгенерированные секреты и публичный OIDC-конфиг (пишет zitadel-init)
+infra/zitadel/secrets/*
+!infra/zitadel/secrets/.gitkeep
+infra/zitadel/public/*.json

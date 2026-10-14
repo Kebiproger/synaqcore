@@ -6,21 +6,23 @@
 
 Запуск:
   pip install locust
+  export SYNAQ_TOKEN="$(scripts/get_token.sh)"   # JWT с ролью admin (Zitadel)
   locust -f tests/load/locustfile.py --headless \\
     -u 100 -r 10 --run-time 30s \\
     --host=http://localhost:8080
+
+Без SYNAQ_TOKEN эксперимент не создаётся автоматически (setup пропускается).
 """
 
-import json
+import os
 import random
-import string
 
 from locust import HttpUser, task, between
 from locust.env import Environment
 
 
 # ─────────── Тестовые данные ───────────
-ADMIN_KEY = "ab_testing_admin_secret"
+SYNAQ_TOKEN_ENV = "SYNAQ_TOKEN"
 EXPERIMENT_NAME = "load_test_exp"
 VARIANTS = {"A": 50, "B": 50}
 
@@ -117,6 +119,12 @@ def setup_experiment(environment: Environment, **kwargs):
     """Создаёт тестовый эксперимент один раз перед запуском нагрузки."""
     import httpx
 
+    token = os.environ.get(SYNAQ_TOKEN_ENV, "").strip()
+    if not token:
+        print(f"[SETUP] {SYNAQ_TOKEN_ENV} не задан — создание эксперимента пропущено.")
+        print("[SETUP] Получите токен: export SYNAQ_TOKEN=\"$(scripts/get_token.sh)\"")
+        return
+
     host = environment.host or "http://localhost:8080"
     url = f"{host}/api/v1/experiments/"
     payload = {
@@ -125,7 +133,7 @@ def setup_experiment(environment: Environment, **kwargs):
         "is_active": True,
     }
     headers = {
-        "X-Admin-Key": ADMIN_KEY,
+        "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
     try:
