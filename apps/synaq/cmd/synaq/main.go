@@ -12,9 +12,12 @@ import (
 	"time"
 
 	"synaq/internal/api"
+	"synaq/internal/auth"
 	"synaq/internal/config"
+	"synaq/internal/configcache"
 	"synaq/internal/sink"
 	chsink "synaq/internal/sink/clickhouse"
+	"synaq/internal/store"
 	"synaq/internal/track"
 
 	"github.com/gin-gonic/gin"
@@ -105,19 +108,63 @@ func newClickHouseProducer() sink.Producer {
 	return producer
 }
 
+// Таймауты старта и остановки.
+const (
+	dbStartupTimeout = 30 * time.Second
+	httpStopTimeout  = 5 * time.Second
+)
+
 func main() {
 	if err := checkEventSink(); err != nil {
 		log.Fatal(err)
 	}
-	producer := newClickHouseProducer()
 
 	shutdownCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// PostgreSQL: DSN содержит пароль — не логируем ни его, ни конфигурацию подключения.
+	dsn, err := store.DSNFromEnv()
+	if err != nil {
+		log.Fatal(err)
+	}
+	startCtx, cancelStart := context.WithTimeout(shutdownCtx, dbStartupTimeout)
+	pool, err := store.Open(startCtx, dsn)
+	if err != nil {
+		cancelStart()
+		log.Fatalf("Ошибка подключения к PostgreSQL: %v", err)
+	}
+	if err := store.Migrate(startCtx, pool); err != nil {
+		cancelStart()
+		pool.Close()
+		log.Fatalf("Ошибка миграций PostgreSQL: %v", err)
+	}
+	cancelStart()
+	log.Println("PostgreSQL: подключение установлено, миграции применены")
+	repo := store.NewRepository(pool)
+
+	// Кэш конфигураций: первая загрузка обязательна, дальше — LISTEN/NOTIFY и периодическое перечитывание.
+	cache := configcache.New(repo, configcache.Options{Listen: configcache.PgListener(dsn)})
+	if err := cache.LoadInitial(shutdownCtx); err != nil {
+		pool.Close()
+		log.Fatalf("Ошибка загрузки конфигураций экспериментов: %v", err)
+	}
+	cacheCtx, cancelCache := context.WithCancel(context.Background())
+	cacheDone := make(chan struct{})
+	go func() {
+		defer close(cacheDone)
+		cache.Run(cacheCtx)
+	}()
+
+	verifier := auth.NewVerifier(auth.ConfigFromEnv())
+	producer := newClickHouseProducer()
+
 	gin.SetMode(ginMode())
-	// TODO: подключить Repo (internal/store), Cache (internal/configcache) и Auth (internal/auth).
 	router := api.NewRouter(api.Deps{
 		Tracker: track.NewHandler(producer, eventsTopic),
+		Repo:    repo,
+		Cache:   cache,
+		Auth:    verifier,
+		Ready:   cache.Ready,
 	})
 
 	srv := &http.Server{
@@ -141,7 +188,8 @@ func main() {
 	<-shutdownCtx.Done()
 	log.Println("Получен сигнал завершения работы, останавливаем сервис...")
 
-	stopHTTPCtx, cancelHTTP := context.WithTimeout(context.Background(), 5*time.Second)
+	// Порядок: HTTP → приёмник событий → кэш конфигураций → пул PostgreSQL.
+	stopHTTPCtx, cancelHTTP := context.WithTimeout(context.Background(), httpStopTimeout)
 	defer cancelHTTP()
 	if err := srv.Shutdown(stopHTTPCtx); err != nil {
 		log.Printf("Ошибка при остановке HTTP-сервера: %v", err)
@@ -153,6 +201,10 @@ func main() {
 	} else {
 		log.Println("Приёмник событий успешно остановлен")
 	}
+
+	cancelCache()
+	<-cacheDone
+	pool.Close()
 
 	log.Println("Сервис успешно выключен")
 }
