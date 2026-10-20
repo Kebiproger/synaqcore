@@ -1,5 +1,4 @@
 fastapi[standard]
 pydantic-settings
 httpx
-numpy
 PyJWT[crypto]>=2.8,<3

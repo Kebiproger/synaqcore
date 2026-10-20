@@ -19,8 +19,10 @@ GET /api/v1/stats/{experiment_name}
 """
 
 import asyncio
-from typing import Dict, List, Optional
+import logging
+from typing import List, Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.core.auth import require_roles
@@ -49,6 +51,12 @@ from src.services.analysis.recommendations import (
     format_revenue_insight,
     format_guardrail_insight,
 )
+
+logger = logging.getLogger(__name__)
+
+# Ошибки, которые ожидаемы при поиске выбросов: ClickHouse недоступен (502),
+# сетевой сбой, неожиданная форма строк. Остальное — баг, его не глотаем.
+_OUTLIER_ERRORS = (HTTPException, httpx.HTTPError, KeyError, ValueError, TypeError)
 
 # Вся аналитика доступна только ролям admin / analyst (Zitadel OIDC)
 router = APIRouter(
@@ -113,6 +121,12 @@ async def analyze_experiment(
     )
 
     conversion_rows = aggregated.get("conversion_rates", [])
+    if isinstance(conversion_rows, dict):
+        # fetch_all_metrics заменил ошибку на {"error": ...}; детали уже в логе
+        raise HTTPException(
+            status_code=502,
+            detail="Ошибка хранилища аналитики",
+        )
     if not conversion_rows:
         raise HTTPException(
             status_code=404,
@@ -256,22 +270,30 @@ async def analyze_experiment(
     # ── 8. Выбросы ──
     outlier_analysis = None
     if "выбросы" not in hidden_sections:
+        # Два независимых блока: сбой одного не отменяет результат другого
+        # По доходу
         try:
-            # По доходу
             rev_outliers = await fetch_outlier_data(experiment_name)
             if rev_outliers:
                 outlier_vals = [(r["user_id"], float(r["metric_sum"])) for r in rev_outliers]
                 outlier_analysis = _outlier_detector.detect_outliers_iqr(outlier_vals, "revenue")
+        except _OUTLIER_ERRORS:
+            logger.warning(
+                "Поиск выбросов по доходу для %s не удался", experiment_name, exc_info=True,
+            )
 
-            # По спайкам событий
+        # По спайкам событий
+        try:
             event_counts = await fetch_user_event_counts(experiment_name)
             if event_counts:
                 spike_vals = [(r["user_id"], int(r["event_count"])) for r in event_counts]
                 spike_result = _outlier_detector.detect_event_spike(spike_vals)
                 if spike_result.outliers:
                     outlier_analysis = spike_result
-        except Exception:
-            pass
+        except _OUTLIER_ERRORS:
+            logger.warning(
+                "Поиск спайков событий для %s не удался", experiment_name, exc_info=True,
+            )
 
     # ── 9. Рекомендации (NLP) ──
     recs = _recommender.generate_all(
@@ -325,7 +347,13 @@ async def analyze_experiment(
         response["outliers"] = outlier_analysis.to_dict() if outlier_analysis else None
 
     if "тренд" not in hidden_sections:
-        response["daily_trend"] = aggregated.get("daily_trend", [])
+        daily_trend = aggregated.get("daily_trend", [])
+        if not isinstance(daily_trend, list):
+            # Агрегатор при ошибке запроса может вернуть маркер {"error": ...}; дашборд ждёт список.
+            logger.warning("daily_trend для эксперимента %s не список (%s), возвращаем []",
+                           experiment_name, type(daily_trend).__name__)
+            daily_trend = []
+        response["daily_trend"] = daily_trend
 
     return response
 

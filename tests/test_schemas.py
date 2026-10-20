@@ -11,7 +11,12 @@
 
 import pytest
 from pydantic import ValidationError
-from src.schemas.experiment import ExperimentConfigCreate, ExperimentUpdate, VariantResponse
+from src.schemas.experiment import (
+    MAX_VARIANT_WEIGHT,
+    ExperimentConfigCreate,
+    ExperimentUpdate,
+    VariantResponse,
+)
 
 
 # ────────────────────────────────
@@ -135,6 +140,15 @@ class TestInvalidExperiments:
         with pytest.raises(ValidationError, match="положительн"):
             ExperimentConfigCreate(name="all_neg", variants={"A": -1, "B": -2})
 
+    def test_weight_upper_bound_ok(self):
+        exp = ExperimentConfigCreate(name="max_w", variants={"A": 1, "B": MAX_VARIANT_WEIGHT})
+        assert exp.variants["B"] == 1_000_000
+
+    @pytest.mark.parametrize("weight", [MAX_VARIANT_WEIGHT + 1, 10**18, 2**63])
+    def test_weight_too_large(self, weight):
+        with pytest.raises(ValidationError, match="превышать"):
+            ExperimentConfigCreate(name="huge_w", variants={"A": 1, "B": weight})
+
 
 # ────────────────────────────────
 # ExperimentUpdate
@@ -155,6 +169,14 @@ class TestExperimentUpdate:
 
     def test_valid_variants(self):
         assert ExperimentUpdate(variants={"A": 1, "B_2": 3}).variants == {"A": 1, "B_2": 3}
+
+    @pytest.mark.parametrize("weight", [0, -1, MAX_VARIANT_WEIGHT + 1])
+    def test_weight_out_of_range(self, weight):
+        with pytest.raises(ValidationError):
+            ExperimentUpdate(variants={"A": weight})
+
+    def test_weight_bounds_ok(self):
+        assert ExperimentUpdate(variants={"A": 1, "B": MAX_VARIANT_WEIGHT}).variants["B"] == MAX_VARIANT_WEIGHT
 
 
 # ────────────────────────────────

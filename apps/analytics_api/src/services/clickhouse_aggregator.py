@@ -12,10 +12,14 @@ Python (анализаторы) делает то, что не умеет ClickH
   - Байесовские симуляции (P(B > A), Expected Loss)
   - NLP-рекомендации на русском языке
 
-Все запросы защищены от SQL-инъекций через экранирование имён (CWE-89).
+Все запросы защищены от SQL-инъекций (CWE-89): имена эксперимента и событий
+проверяются по regex, поле метрики — по белому списку, сегменты проверяются
+по regex и дополнительно экранируются.
 """
 
+import asyncio
 import json as jason
+import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -23,6 +27,8 @@ import httpx
 from fastapi import HTTPException
 
 from src.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────
 #  ClickHouse connection
@@ -40,6 +46,11 @@ CLICKHOUSE_PASS = settings.CLICKHOUSE_PASSWORD
 _EXPERIMENT_NAME = re.compile(r"[A-Za-z0-9_.\-]{1,50}")
 # Имена событий (goal_event) — строже: без точки, 1–50 символов (как Query max_length).
 _SAFE_NAME = re.compile(r"[A-Za-z0-9_\-]{1,50}")
+# Поля event_data, по которым разрешён поиск выбросов. metric_field подставляется
+# в SQL, поэтому принимается только из явного белого списка (CWE-89).
+_OUTLIER_METRIC_FIELDS = frozenset({"revenue", "amount", "price", "quantity"})
+# Максимум сегментов в одном запросе: каждый сегмент — отдельный запрос в ClickHouse.
+MAX_SEGMENTS = 10
 
 
 async def _ch_query(query: str) -> List[dict]:
@@ -57,9 +68,15 @@ async def _ch_query(query: str) -> List[dict]:
             timeout=15,
         )
         if response.status_code != 200:
+            # Тело ответа ClickHouse (текст запроса, имена таблиц, версия) — только
+            # в лог сервера; клиенту отдаём общее сообщение без деталей.
+            logger.error(
+                "ClickHouse вернул HTTP %s: %s",
+                response.status_code, response.text[:2000],
+            )
             raise HTTPException(
                 status_code=502,
-                detail=f"ClickHouse error: {response.text}",
+                detail="Ошибка хранилища аналитики",
             )
         if not response.text.strip():
             return []
@@ -97,6 +114,37 @@ def _validate_goal_event(goal_event: str) -> None:
         )
 
 
+def _validate_event_names(event_names: List[str]) -> None:
+    """Проверка списка имён событий (шаги воронки, guardrail-события).
+
+    Каждое имя проверяется тем же правилом, что и goal_event (CWE-89).
+    """
+    if not isinstance(event_names, (list, tuple)):
+        raise HTTPException(
+            status_code=400,
+            detail="Ожидается список имён событий.",
+        )
+    for event_name in event_names:
+        _validate_goal_event(event_name)
+
+
+def _validate_metric_field(metric_field: str) -> None:
+    """Проверка поля метрики для поиска выбросов по белому списку (CWE-89)."""
+    if not isinstance(metric_field, str) or metric_field not in _OUTLIER_METRIC_FIELDS:
+        raise HTTPException(
+            status_code=400,
+            detail="Недопустимое поле метрики. "
+                   f"Допустимые значения: {', '.join(sorted(_OUTLIER_METRIC_FIELDS))}.",
+        )
+
+
+def _validate_limit(limit: int) -> int:
+    """LIMIT подставляется в SQL числом: принимаем только положительный int."""
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+        raise HTTPException(status_code=400, detail="Недопустимое значение limit.")
+    return limit
+
+
 def _escape_sql_string(value: str) -> str:
     """Экранирование строки для безопасной подстановки в ClickHouse SQL.
 
@@ -108,6 +156,47 @@ def _escape_sql_string(value: str) -> str:
 def _escape_segment(segment: str) -> str:
     """Экранирование имени сегмента."""
     return _escape_sql_string(segment)
+
+
+def _validate_segments(segments: List[str]) -> List[str]:
+    """Проверка списка сегментов: те же символы, что у событий, без дублей, ≤ MAX_SEGMENTS.
+
+    Имя сегмента подставляется в SQL; помимо экранирования (_escape_segment)
+    допускаем только [A-Za-z0-9_-] (CWE-89). Дубли убираются с сохранением порядка.
+    """
+    if not isinstance(segments, (list, tuple)):
+        raise HTTPException(status_code=400, detail="Ожидается список сегментов.")
+    unique: List[str] = []
+    for segment in segments:
+        if not isinstance(segment, str) or not _SAFE_NAME.fullmatch(segment):
+            raise HTTPException(
+                status_code=400,
+                detail="Недопустимое имя сегмента. "
+                       "Используйте только латиницу, цифры, дефисы и подчёркивания.",
+            )
+        if segment not in unique:
+            unique.append(segment)
+    if len(unique) > MAX_SEGMENTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Слишком много сегментов: максимум {MAX_SEGMENTS}.",
+        )
+    return unique
+
+
+def _json_number(field: str) -> str:
+    """SQL-выражение: числовое значение поля event_data, 0 при отсутствии.
+
+    toFloat64(JSONExtractRaw(...)) падает, если поля нет ('') или значение —
+    JSON-строка ('"12.5"'). JSONExtractFloat возвращает 0 для отсутствующего поля
+    и числа читает как есть; строковое значение разбираем через toFloat64OrZero.
+    field должен быть заранее проверен (белый список / константа).
+    """
+    return (
+        f"if(JSONType(event_data, '{field}') = 'String', "
+        f"toFloat64OrZero(JSONExtractString(event_data, '{field}')), "
+        f"JSONExtractFloat(event_data, '{field}'))"
+    )
 
 
 # ──────────────────────────────────────────────
@@ -250,17 +339,16 @@ async def fetch_revenue_metrics(experiment_name: str) -> List[dict]:
     Ожидается, что событие 'purchase' содержит revenue в event_data.
     """
     _validate_experiment_name(experiment_name)
+    revenue = _json_number("revenue")
 
     return await _ch_query(f"""
         SELECT
             variant,
             countDistinct(user_id) AS total_users,
             countDistinct(if(event_name = 'purchase', user_id, NULL)) AS paying_users,
-            sum(if(event_name = 'purchase',
-                   toFloat64(JSONExtractRaw(event_data, 'revenue')), 0)) AS total_revenue,
+            sum(if(event_name = 'purchase', {revenue}, 0)) AS total_revenue,
             round(
-                sum(if(event_name = 'purchase',
-                       toFloat64(JSONExtractRaw(event_data, 'revenue')), 0))
+                sum(if(event_name = 'purchase', {revenue}, 0))
                 / countDistinct(user_id), 6
             ) AS arpu
         FROM tracking_events
@@ -291,6 +379,7 @@ async def fetch_segment_metrics(
     """
     _validate_experiment_name(experiment_name)
     _validate_goal_event(goal_event)
+    _validate_segments([segment_field])
     escaped_segment = _escape_segment(segment_field)
 
     # Безопасное имя поля — экранируем через JSONExtractString
@@ -329,6 +418,7 @@ async def fetch_funnel_metrics(
                       Например: ['page_view', 'add_to_cart', 'checkout_start', 'purchase']
     """
     _validate_experiment_name(experiment_name)
+    _validate_event_names(funnel_steps)
 
     if not funnel_steps:
         return []
@@ -377,11 +467,13 @@ async def fetch_outlier_data(
     Возвращает user_id и сумму метрики для каждого пользователя.
     """
     _validate_experiment_name(experiment_name)
+    _validate_metric_field(metric_field)
+    limit = _validate_limit(limit)
 
     return await _ch_query(f"""
         SELECT
             user_id,
-            sum(toFloat64(JSONExtractRaw(event_data, '{metric_field}'))) AS metric_sum
+            sum({_json_number(metric_field)}) AS metric_sum
         FROM tracking_events
         WHERE experiment_name = '{experiment_name}'
           AND event_name = 'purchase'
@@ -397,6 +489,7 @@ async def fetch_user_event_counts(
 ) -> List[dict]:
     """Количество событий на пользователя — для поиска ботов/спайков."""
     _validate_experiment_name(experiment_name)
+    limit = _validate_limit(limit)
 
     return await _ch_query(f"""
         SELECT
@@ -423,6 +516,7 @@ async def fetch_guardrail_metrics(
     Например: error_count, support_request, page_load_slow.
     """
     _validate_experiment_name(experiment_name)
+    _validate_event_names(guardrail_events)
 
     if not guardrail_events:
         return []
@@ -502,8 +596,11 @@ async def fetch_all_metrics(
     guardrail_events = guardrail_events or [
         "error_occurred", "support_request", "payment_failed",
     ]
-
-    import asyncio
+    # Проверяем до asyncio.gather: там исключения превращаются в {"error": ...},
+    # а недопустимый ввод должен давать 400 вызывающему.
+    _validate_event_names(funnel_steps)
+    _validate_event_names(guardrail_events)
+    segments = _validate_segments(segments)
 
     # Запускаем все запросы параллельно
     tasks = {
@@ -528,7 +625,12 @@ async def fetch_all_metrics(
     aggregated = {}
     for task_name, result in zip(tasks.keys(), results):
         if isinstance(result, Exception):
-            aggregated[task_name] = {"error": str(result)}
+            # Текст исключения (SQL, ответ ClickHouse) — только в лог сервера.
+            logger.warning(
+                "Запрос %s для эксперимента %s завершился ошибкой",
+                task_name, experiment_name, exc_info=result,
+            )
+            aggregated[task_name] = {"error": "Не удалось получить данные"}
         else:
             aggregated[task_name] = result
 

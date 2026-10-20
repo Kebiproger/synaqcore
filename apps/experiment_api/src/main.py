@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from src.core.redis import redis_cache
@@ -5,16 +7,24 @@ from src.core.database import init_db, dispose_db
 from contextlib import asynccontextmanager
 from src.api.v1 import admin, client
 
+# uvicorn настраивает только свои логгеры; без этого INFO из src.* не выводится.
+# Логгеры uvicorn имеют propagate=False, поэтому дублирования строк нет.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s:     %(name)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("Запускаем Experiment API...")
+    logger.info("Запускаем Experiment API...")
     await redis_cache.connect()
     await init_db()
 
     yield
 
-    print("Остонавливаем Experiment API...")
+    logger.info("Останавливаем Experiment API...")
     await redis_cache.close()
     await dispose_db()
 

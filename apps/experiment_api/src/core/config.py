@@ -10,11 +10,6 @@ class Settings(BaseSettings):
     POSTGRES_PASSWORD: str
     POSTGRES_DB: str
 
-    CLICKHOUSE_HOST: str = "clickhouse"
-    CLICKHOUSE_HTTP_PORT: int = 8123
-    CLICKHOUSE_USER: str = "default"
-    CLICKHOUSE_PASSWORD: str = ""
-
     # Zitadel OIDC: пустые значения → защищённые эндпоинты отвечают 503 (fail closed)
     OIDC_ISSUER: str = ""
     OIDC_JWKS_URL: str = ""

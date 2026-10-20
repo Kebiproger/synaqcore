@@ -35,7 +35,7 @@ class RedisCache:
             retry=Retry(NoBackoff(), REDIS_RETRIES),
             health_check_interval=REDIS_HEALTH_CHECK_INTERVAL,
         )
-        print("Подключение успешна к Redis!")
+        logger.info("Подключение к Redis успешно")
 
     @staticmethod
     def _parse(redis_key: str, raw_data: str) -> Optional[ExperimentConfigCreate]:

@@ -11,14 +11,12 @@ ClickHouse не вызывается: fetch_* в модуле stats подмен
 """
 
 import asyncio
-import importlib
-import sys
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
+from tests._isolated_import import ANALYTICS_API_DIR, load_analytics_modules
 from tests._jwt_utils import (
     GENERIC_ROLES_CLAIM,
     TEST_AUDIENCE,
@@ -31,34 +29,9 @@ from tests._jwt_utils import (
     public_jwk,
     rsa_key,
 )
-ANALYTICS_API_DIR = str(Path(__file__).resolve().parent.parent / "apps" / "analytics_api")
-
-
-def _is_src(name: str) -> bool:
-    return name == "src" or name.startswith("src.")
-
-
-def _load_analytics_modules():
-    saved_modules = {k: v for k, v in sys.modules.items() if _is_src(k)}
-    saved_path = list(sys.path)
-    for k in saved_modules:
-        del sys.modules[k]
-    sys.path.insert(0, ANALYTICS_API_DIR)
-    importlib.invalidate_caches()
-    try:
-        main = importlib.import_module("src.main")
-        stats = importlib.import_module("src.api.v1.stats")
-        auth = importlib.import_module("src.core.auth")
-    finally:
-        for k in [k for k in sys.modules if _is_src(k)]:
-            del sys.modules[k]
-        sys.modules.update(saved_modules)
-        sys.path[:] = saved_path
-        importlib.invalidate_caches()
-    return main, stats, auth
-
-
-a_main, a_stats, a_auth = _load_analytics_modules()
+a_main, a_stats, a_auth = load_analytics_modules(
+    "src.main", "src.api.v1.stats", "src.core.auth",
+)
 
 STATS_BASIC = "/api/v1/stats/test_exp_1/basic"
 STATS_FULL = "/api/v1/stats/test_exp_1"

@@ -9,14 +9,23 @@ RESERVED_EXPERIMENT_NAMES = frozenset({"active", "config", "batch", "eval-config
 
 VARIANT_KEY_PATTERN = r"^[A-Za-z0-9_-]+$"
 MAX_VARIANTS = 20
+# Верхняя граница веса варианта: аллокация считает bucket * total (bucket < 10000), и при огромных
+# весах суммы и произведения перестают помещаться в int64 у SDK на других языках (Go). 1..1_000_000
+# с запасом хватает для любых долей трафика.
+MIN_VARIANT_WEIGHT = 1
+MAX_VARIANT_WEIGHT = 1_000_000
 
 ExperimentName = Annotated[str, StringConstraints(min_length=1, max_length=50, pattern=EXPERIMENT_NAME_PATTERN)]
 VariantKey = Annotated[str, StringConstraints(min_length=1, max_length=50, pattern=VARIANT_KEY_PATTERN)]
 
 
-def _check_weights_positive(v: Optional[Dict[str, int]]) -> Optional[Dict[str, int]]:
-    if v is not None and any(w <= 0 for w in v.values()):
+def _check_weights(v: Optional[Dict[str, int]]) -> Optional[Dict[str, int]]:
+    if v is None:
+        return v
+    if any(w < MIN_VARIANT_WEIGHT for w in v.values()):
         raise ValueError("Все веса должны быть положительными")
+    if any(w > MAX_VARIANT_WEIGHT for w in v.values()):
+        raise ValueError(f"Вес варианта не может превышать {MAX_VARIANT_WEIGHT}")
     return v
 
 
@@ -39,8 +48,8 @@ class ExperimentConfigCreate(BaseModel):
 
     @field_validator('variants')
     @classmethod
-    def check_weights_positive(cls, v):
-        return _check_weights_positive(v)
+    def check_weights(cls, v):
+        return _check_weights(v)
 
 
 class ExperimentUpdate(BaseModel):
@@ -55,8 +64,8 @@ class ExperimentUpdate(BaseModel):
 
     @field_validator('variants')
     @classmethod
-    def check_weights_positive(cls, v):
-        return _check_weights_positive(v)
+    def check_weights(cls, v):
+        return _check_weights(v)
 
     @model_validator(mode="after")
     def check_not_null(self):

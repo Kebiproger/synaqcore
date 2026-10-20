@@ -10,35 +10,36 @@
 """
 
 import pytest
-import sys
-from pathlib import Path
 
-# Добавляем путь к src для импорта
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-EXPERIMENT_API_SRC = PROJECT_ROOT / "apps" / "experiment_api"
-sys.path.insert(0, str(EXPERIMENT_API_SRC))
+from tests._isolated_import import ANALYTICS_API_DIR, load_analytics_modules
 
-from src.services.analysis.statistical import (
-    StatisticalAnalyzer,
-    StatisticalResult,
-    _safe_rate,
-    _safe_standard_error,
+# Движок анализа живёт только в analytics_api: загружаем его изолированно,
+# т.к. conftest.py кладёт в sys.path experiment_api (оба сервиса — пакет `src`).
+_statistical, _business, _segmentation, _recommendations = load_analytics_modules(
+    "src.services.analysis.statistical",
+    "src.services.analysis.business",
+    "src.services.analysis.segmentation",
+    "src.services.analysis.recommendations",
 )
-from src.services.analysis.business import (
-    BusinessAnalyzer,
-    RevenueMetrics,
-    GuardrailMetric,
-)
-from src.services.analysis.segmentation import (
-    SegmentationAnalyzer,
-    FunnelAnalyzer,
-    OutlierDetector,
-    SegmentComparison,
-)
-from src.services.analysis.recommendations import (
-    RecommendationEngine,
-    BusinessRecommendation,
-)
+
+StatisticalAnalyzer = _statistical.StatisticalAnalyzer
+StatisticalResult = _statistical.StatisticalResult
+_safe_rate = _statistical._safe_rate
+_safe_standard_error = _statistical._safe_standard_error
+BusinessAnalyzer = _business.BusinessAnalyzer
+RevenueMetrics = _business.RevenueMetrics
+GuardrailMetric = _business.GuardrailMetric
+SegmentationAnalyzer = _segmentation.SegmentationAnalyzer
+FunnelAnalyzer = _segmentation.FunnelAnalyzer
+OutlierDetector = _segmentation.OutlierDetector
+SegmentComparison = _segmentation.SegmentComparison
+RecommendationEngine = _recommendations.RecommendationEngine
+BusinessRecommendation = _recommendations.BusinessRecommendation
+
+
+def test_engine_is_from_analytics_api():
+    for module in (_statistical, _business, _segmentation, _recommendations):
+        assert module.__file__.startswith(ANALYTICS_API_DIR)
 
 
 # ──────────────────────────────────────────────
