@@ -46,11 +46,22 @@ jobs:
         run: pytest tests/ -q
 
   go:
-    name: Go (vet + build)
+    name: Go (${{ matrix.module }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - module: apps/track_api_go
+            cache: true
+            build: true
+          # sdk/go has no external dependencies (no go.sum), so there is nothing to cache.
+          - module: sdk/go
+            cache: false
+            build: false
     defaults:
       run:
-        working-directory: apps/track_api_go
+        working-directory: ${{ matrix.module }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -58,14 +69,56 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: apps/track_api_go/go.mod
-          cache-dependency-path: apps/track_api_go/go.sum
+          go-version-file: ${{ matrix.module }}/go.mod
+          cache: ${{ matrix.cache }}
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+
+      - name: Gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::Files not formatted with gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
 
       - name: Go vet
         run: go vet ./...
 
+      # -race needs cgo; the ubuntu runner ships gcc.
+      - name: Go test (race detector)
+        run: go test -race ./...
+
       - name: Go build
+        if: ${{ matrix.build }}
         run: go build -o /tmp/track_api ./cmd/api
+
+  dashboard:
+    name: Dashboard (typecheck + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/dashboard
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # Same version as the base image in apps/dashboard/Dockerfile.
+          node-version: "24.21.0"
+          cache: npm
+          cache-dependency-path: apps/dashboard/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
 
   docker:
     name: Docker build (${{ matrix.service }})
@@ -73,7 +126,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [experiment_api, analytics_api, track_api_go]
+        service: [experiment_api, analytics_api, track_api_go, dashboard]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
