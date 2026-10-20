@@ -43,21 +43,32 @@ ClickHouse не сохраняет сообщения напрямую в таб
   - Напрямую делать `SELECT` из этой таблицы в продакшене **нельзя**: при каждом таком запросе ClickHouse вычитает очередную порцию сообщений и сдвинет смещение (offset), из-за чего данные будут утеряны для постоянного хранилища.
   - Сама по себе таблица Kafka пассивна. Чтобы она начала вычитывать сообщения в фоне, к ней обязательно должно быть привязано хотя бы одно `Materialized View`.
 
+В SynaqCore эта таблица описана в [`infra/clickhouse/init/02-kafka.sql`](../../infra/clickhouse/init/02-kafka.sql)
+(файл нужен только в режиме с Kafka; таблица `tracking_events` — в `01-tables.sql`, который выполняется раньше по алфавиту):
+
 ```sql
 CREATE TABLE IF NOT EXISTS tracking_events_queue (
     timestamp DateTime64(3, 'UTC'),
     user_id String,
+    event_id String,
     event_name String,
-    experiment_name String DEFAULT '',
-    variant String DEFAULT '',
+    experiment_name String,
+    variant String,
     event_data String
-) ENGINE = Kafka 
+) ENGINE = Kafka
 SETTINGS kafka_broker_list = 'redpanda:9092',
          kafka_topic_list = 'tracking_events',
          kafka_group_name = 'clickhouse_tracking_cg',
          kafka_format = 'JSONEachRow',
+         kafka_handle_error_mode = 'stream',
          input_format_null_as_default = 1;
 ```
+
+> **У колонок Kafka-таблицы не должно быть `DEFAULT`.** ClickHouse 24.8 отклоняет такой `CREATE` (`BAD_ARGUMENTS`),
+> и на свежем томе очередь и MV просто не создавались, хотя трекер успешно писал в Redpanda. Отсутствующие в JSON
+> поля и `null` всё равно получают значение типа по умолчанию (`''` для `String`). Если том ClickHouse создан до
+> исправления, выполните `make ch-reset` (пересоздаёт `tracking_events_queue` и `tracking_events_mv` из `02-kafka.sql`)
+> или `docker compose down -v` (удаляет все тома).
 
 #### Ключевые параметры `SETTINGS`:
 * `kafka_broker_list`: адрес брокера (хост и порт).
@@ -65,6 +76,7 @@ SETTINGS kafka_broker_list = 'redpanda:9092',
 * `kafka_group_name`: идентификатор группы консьюмеров (Consumer Group). Брокер фиксирует коммиты смещений (offsets) для этой группы.
 * `kafka_format`: формат парсинга сообщений (`JSONEachRow`, `Protobuf`, `Avro`, `CSV` и др.).
 * `input_format_null_as_default = 1`: критически важная настройка. Если в JSON пришло поле со значением `null`, ClickHouse не падает с ошибкой, а подставляет дефолтное значение для типа (пустую строку `''` для `String` или `0` для чисел).
+* `kafka_handle_error_mode = 'stream'`: сообщение, которое не удалось разобрать (не JSON, неверный тип поля), не останавливает чтение топика. Вместо исключения и бесконечного повтора одного и того же батча движок отдаёт строку с текстом ошибки в виртуальной колонке `_error` (исходное сообщение — в `_raw_message`), а MV такие строки отбрасывает.
 
 ---
 
@@ -72,6 +84,9 @@ SETTINGS kafka_broker_list = 'redpanda:9092',
 * **Роль:** Долгосрочное аналитическое хранилище на диске.
 * **Физическое хранение:** Колонки сжимаются и сохраняются в бинарные файлы на диске, структурированные по партициям и блокам.
 * **Поведение:** Именно сюда направляются все аналитические `SELECT`, агрегации и построение дашбордов.
+
+Базовый вариант (в SynaqCore используется `ReplacingMergeTree` с дедупликацией, см. [раздел 5](#5-дедупликация-событий-как-работает-replacingmergetree)
+и [`infra/clickhouse/init/01-tables.sql`](../../infra/clickhouse/init/01-tables.sql)):
 
 ```sql
 CREATE TABLE IF NOT EXISTS tracking_events (
@@ -96,16 +111,19 @@ ORDER BY (event_name, user_id, timestamp);
   - Как только из Kafka приходит батч сообщений, он проходит через `SELECT` материализованного представления (где данные можно профильтровать, распарсить JSON, обогатить или переименовать) и мгновенно записывается в целевую таблицу через конструкцию `TO target_table`.
 
 ```sql
-CREATE MATERIALIZED VIEW IF NOT EXISTS tracking_events_mv TO tracking_events AS 
-SELECT
+CREATE MATERIALIZED VIEW IF NOT EXISTS tracking_events_mv TO tracking_events AS SELECT
     timestamp,
     user_id,
+    event_id,
     event_name,
     experiment_name,
     variant,
     event_data
-FROM tracking_events_queue;
+FROM tracking_events_queue
+WHERE length(_error) = 0;
 ```
+
+Без фильтра по `_error` в `tracking_events` попадали бы пустые строки с `timestamp` 1970 года на каждое битое сообщение.
 
 ---
 
@@ -199,3 +217,26 @@ ClickHouse ищет дубликаты **НЕ по таймстемпу**, а с
   SELECT count() FROM tracking_events FINAL WHERE event_name = 'purchase';
   ```
   `FINAL` заставляет ClickHouse схлопнуть дубликаты на лету прямо во время выборки.
+
+### Как это используется в SynaqCore
+* `analytics_api` не использует `FINAL` (он дорог на больших таблицах): конверсии и воронки считаются через
+  `countDistinct(user_id)`, поэтому несхлопнутые дубликаты на них не влияют. Суммы (например, выручка) до фонового
+  слияния могут учитывать дубликат — это известное ограничение.
+* Если клиент не передал `event_id`, его генерирует трекер перед публикацией, поэтому пустых ключей дедупликации в таблице
+  нет. JS SDK (`sdk/synaq.js`) генерирует `event_id` ещё на клиенте, так что ретраи из браузера несут один и тот же id.
+  Серверным клиентам стоит передавать собственный идемпотентный ключ (например, id заказа): id, сгенерированный трекером,
+  у повторной отправки будет другим, и такой дубликат не схлопнется.
+* Трекер принимает `timestamp` только в окне [сейчас − 7 дней, сейчас + 5 минут]. Без ограничения одна вставка
+  могла задеть больше `max_partitions_per_insert_block` месячных партиций, Kafka engine бесконечно повторял бы такой
+  батч, и приём событий вставал бы целиком.
+
+---
+
+## 6. Режим без Kafka (lite)
+
+Go-трекер умеет писать в `tracking_events` напрямую (`EVENT_SINK=clickhouse`, `apps/track_api_go/internal/sink/clickhouse`):
+события копятся в ограниченном буфере (`CH_BUFFER_SIZE`, по умолчанию 10 000) и отправляются батчами
+`INSERT INTO tracking_events FORMAT JSONEachRow` (`CH_BATCH_SIZE` = 1000, `CH_FLUSH_INTERVAL` = 1s) с ретраями.
+Формат строки совпадает с сообщением в Kafka, поэтому таблица одна для обоих режимов; `02-kafka.sql` в этом режиме
+не монтируется. Компромисс: durable-буфера нет — если ClickHouse недоступен дольше, чем выдерживает буфер,
+трекер отвечает `503`, а при перезапуске процесса содержимое буфера теряется.

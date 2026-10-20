@@ -53,12 +53,12 @@
                       │                                                                   │
                       ▼                                                                   ▼
        [FastAPI: Experiment API]                                              [Go: Track API Core]
-        - Выдача варианта (<2ms)                                               - Пропускная способность:
-        - Кэш в Redis                                                            20k+ RPS в Redpanda
+        - Выдача варианта                                                      - Асинхронная публикация
+        - Кэш в Redis                                                            в Redpanda
 ```
 
-* **Чтение (Выдача варианта):** Публичный эндпоинт `/api/v1/variants/{exp}`. Кэшируется в Redis, среднее время ответа `< 2 мс`. Детерминированный хэш гарантирует, что пользователь всегда видит свой вариант.
-* **Запись (Трекинг событий):** Высокопроизводительный микросервис на Go `/api/v1/tracker/events`. Асинхронно пушит события в Kafka/Redpanda без промежуточных тяжелых БД.
+* **Чтение (Выдача варианта):** Публичный эндпоинт `/api/v1/variants/{exp}`. Конфиг эксперимента кэшируется в Redis (при сбое Redis — чтение из Postgres через circuit breaker), запись в БД на запрос не нужна. Детерминированный хэш гарантирует, что пользователь всегда видит свой вариант.
+* **Запись (Трекинг событий):** Высокопроизводительный микросервис на Go `/api/v1/tracker/events`. Асинхронно публикует события в Kafka/Redpanda, откуда их забирает ClickHouse (Kafka engine). Публичный, ограничен 200 запросами/с с IP; коды ответа — в [разделе 4](#отправка-серверных-событий-конверсий).
 * **Изоляция:** Аналитика считается на стороне ClickHouse и не влияет на скорость выдачи вариантов.
 
 ---
@@ -74,7 +74,7 @@
 * `127.0.0.1:8081` — **Zitadel IAM** (SSO-аутентификация для сотрудников и сервисных аккаунтов).
 
 Готовый эталонный конфигурационный файл для вашего Nginx:  
-👉 [nginx/company-edge-integration.example.conf](file:///home/kebi/proga/Kebi/synaqcore/nginx/company-edge-integration.example.conf)
+[nginx/company-edge-integration.example.conf](../nginx/company-edge-integration.example.conf)
 
 ---
 
@@ -187,10 +187,14 @@ npm install @synaq/client
 pnpm add @synaq/client
 ```
 
+> Пакет подготовлен к публикации (`sdk/package.json`), но не обязательно опубликован в публичном реестре npm.
+> Можно собрать его локально (`npm pack` в `sdk/`) или подключить файл со шлюза (см. ниже).
+
 Файлы пакета:
-* [sdk/package.json](file:///home/kebi/proga/Kebi/synaqcore/sdk/package.json)
-* [sdk/synaq.d.ts](file:///home/kebi/proga/Kebi/synaqcore/sdk/synaq.d.ts) — полная типизация TypeScript.
-* [sdk/synaq.js](file:///home/kebi/proga/Kebi/synaqcore/sdk/synaq.js) — ядро библиотеки (zero-dependency, < 3 КБ).
+* [sdk/package.json](../sdk/package.json)
+* [sdk/synaq.d.ts](../sdk/synaq.d.ts) — полная типизация TypeScript.
+* [sdk/synaq.js](../sdk/synaq.js) — ядро библиотеки (zero-dependency).
+* [sdk/react.jsx](../sdk/react.jsx) — `<SynaqProvider>` и хук `useVariant`.
 
 ---
 
@@ -353,15 +357,19 @@ export function SubscribeButton() {
 **Ответ (200 OK):**
 ```json
 {
-  "experiment": "pricing_model_v2",
-  "variant": "subscription_annual",
+  "experiment_name": "pricing_model_v2",
   "user_id": "usr_99812",
-  "config": {
-    "price_per_month": 1200,
-    "discount": 20
-  }
+  "variant": "subscription_annual"
 }
 ```
+
+Для неизвестного или выключенного эксперимента возвращается `"variant": "control"`. Конфиг рендеринга вариантов
+отдаёт `GET /api/v1/variants/config/{experiment_name}`; несколько экспериментов за один вызов —
+`POST /api/v1/variants/batch` с телом `{"user_id": "...", "experiments": ["a", "b"]}` (до 50 имён).
+
+Для высоких нагрузок используйте серверные SDK с локальным расчётом — [`sdk/python`](../sdk/python) и [`sdk/go`](../sdk/go):
+они раз в 30 с забирают веса активных экспериментов из `GET /api/v1/variants/eval-configs` и вычисляют вариант в памяти
+тем же алгоритмом, что и сервер (SHA-256-бакет, варианты в алфавитном порядке), без сетевого вызова на каждый запрос.
 
 ---
 
@@ -374,6 +382,7 @@ export function SubscribeButton() {
 **Тело запроса:**
 ```json
 {
+  "event_id": "payment_ord_123",
   "user_id": "usr_99812",
   "event_name": "payment_success",
   "experiment_name": "pricing_model_v2",
@@ -381,6 +390,23 @@ export function SubscribeButton() {
   "event_data": "{\"amount\":14400,\"currency\":\"RUB\",\"order_id\":\"ord_123\"}"
 }
 ```
+
+* `event_id` — ключ идемпотентности для дедупликации в ClickHouse (`ReplacingMergeTree`). Для серверных событий передавайте
+  стабильный ключ (например, id заказа), чтобы ретраи не создавали дубликатов. Если поле не передано, трекер сгенерирует
+  его сам — но тогда повторная отправка того же события получит новый id и дубликатом не распознается.
+* `timestamp` — необязательный, миллисекунды Unix; по умолчанию — время сервера.
+
+**Лимиты и коды ответа:**
+
+| Код | Когда |
+|---|---|
+| `200 {"status":"OK"}` | событие принято в очередь |
+| `400` | невалидный JSON, нет `user_id` / `event_name`, строковое поле длиннее 256 символов, `event_data` больше 16 КБ, `timestamp` вне окна [сейчас − 7 дней, сейчас + 5 минут] |
+| `413` | тело запроса больше 64 КБ |
+| `429` | превышен лимит gateway: 200 запросов/с с IP (burst 400) |
+| `503` + `Retry-After: 1` | очередь трекера переполнена или брокер недоступен — повторите запрос позже с backoff |
+
+`400` и `413` повторять бессмысленно; `429` и `503` — можно, с паузой.
 
 ---
 
@@ -520,11 +546,11 @@ export async function getVariant(experiment: string, userId: string): Promise<st
 Для интеграции с CI/CD (GitLab CI, GitHub Actions) или корпоративным бэкендом используется сервисный аккаунт Zitadel `synaq-automation` (OAuth 2.0 `client_credentials`):
 
 Готовый bash-скрипт в репозитории:  
-👉 [scripts/get_token.sh](file:///home/kebi/proga/Kebi/synaqcore/scripts/get_token.sh)
+[scripts/get_token.sh](../scripts/get_token.sh)
 
 ```bash
 # Получение токена:
-export SYNAQ_TOKEN="$(scripts/get_token.sh)"
+export SYNAQ_TOKEN="$(scripts/get_token.sh)"   # или: eval "$(make -s token)"
 
 # Проверка:
 curl -H "Authorization: Bearer $SYNAQ_TOKEN" http://localhost:8080/api/v1/experiments/
@@ -561,7 +587,7 @@ curl -X PATCH "http://localhost:8080/api/v1/experiments/checkout_new_flow" \
 
 ### Выгрузка статистики в корпоративные BI
 
-Аналитический микросервис возвращает готовые математические расчеты (частотные Z-тесты, p-value, 95% доверительные интервалы и байесовские оценки Monte-Carlo):
+`/api/v1/stats/` обслуживает отдельный сервис `analytics_api` (роли `admin` или `analyst`). Он возвращает готовые расчёты: двусторонний z-тест для долей, p-value, 95% доверительные интервалы (Уилсон для конверсий, интервалы разницы и uplift) и байесовские оценки Монте-Карло (P(variant > control), expected loss). Сравниваются контроль (`A` или `control`) и один другой вариант:
 
 ```bash
 curl -X GET "http://localhost:8080/api/v1/stats/checkout_new_flow?goal_event=payment_success&method=both" \
