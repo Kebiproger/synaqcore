@@ -38,6 +38,10 @@ services:
       retries: 3
       start_period: 5s
     restart: unless-stopped
+    # Graceful shutdown трекера: до 5 с на остановку HTTP и до 5 с на дозапись буфера
+    # (Kafka Flush / ClickHouse CloseTimeout). Стандартных 10 с Docker не хватает с запасом,
+    # после них контейнер получает SIGKILL и принятые события теряются.
+    stop_grace_period: 20s
 
   analytics_api:
     container_name: analytics_api

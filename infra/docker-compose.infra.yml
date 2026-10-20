@@ -197,6 +197,12 @@ services:
       zitadel:
         condition: service_healthy
 
+  # Init-скрипты: ./clickhouse/init (выполняются по алфавиту при первом старте на пустом томе):
+  #   01-tables.sql - таблица tracking_events (нужна всегда);
+  #   02-kafka.sql  - Kafka-очередь + MV (только full-режим с Redpanda).
+  # Lite-режим (Go пишет в ClickHouse напрямую, без Redpanda) монтирует только 01,
+  # одним файлом вместо каталога:
+  #   - ./clickhouse/init/01-tables.sql:/docker-entrypoint-initdb.d/01-tables.sql:ro
   clickhouse:
     container_name: clickhouse
     image: clickhouse/clickhouse-server:24.8
