@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"track_api_go/internal/sink"
-	"track_api_go/internal/sink/clickhouse"
-	"track_api_go/internal/track"
+	"synaq/internal/sink"
+	"synaq/internal/sink/clickhouse"
+	"synaq/internal/track"
 )
 
 // Таймаут ожидания в тестах; при нормальной работе ожидания укладываются в миллисекунды.

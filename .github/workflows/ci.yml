@@ -52,7 +52,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - module: apps/track_api_go
+          - module: apps/synaq
             cache: true
             build: true
           # sdk/go has no external dependencies (no go.sum), so there is nothing to cache.
@@ -91,7 +91,7 @@ jobs:
 
       - name: Go build
         if: ${{ matrix.build }}
-        run: go build -o /tmp/track_api ./cmd/api
+        run: go build -o /tmp/synaq ./cmd/synaq
 
   dashboard:
     name: Dashboard (typecheck + build)
@@ -126,7 +126,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [experiment_api, analytics_api, track_api_go, dashboard]
+        service: [experiment_api, analytics_api, synaq, dashboard]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

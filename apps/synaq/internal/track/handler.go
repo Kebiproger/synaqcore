@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"track_api_go/internal/sink"
+	"synaq/internal/sink"
 
 	"github.com/gin-gonic/gin"
 )
@@ -25,13 +25,13 @@ const (
 
 	// Допустимое окно timestamp относительно серверного времени. Без ограничения
 	// анонимный клиент может прислать события за сотни месяцев: одна вставка задевает
-	// больше max_partitions_per_insert_block партиций (PARTITION BY toYYYYMM), Kafka-движок
-	// ClickHouse бесконечно повторяет «ядовитый» батч и приём событий встаёт для всех.
+	// больше max_partitions_per_insert_block партиций (PARTITION BY toYYYYMM),
+	// вставка батча отклоняется целиком и вместе с ним теряются чужие события.
 	MaxEventAge   = 7 * 24 * time.Hour // насколько событие может быть в прошлом
 	MaxFutureSkew = 5 * time.Minute    // допуск на расхождение часов клиента
 )
 
-// TrackEvent — формат события. JSON-теги задают формат сообщения в Kafka/ClickHouse,
+// TrackEvent — формат события. JSON-теги задают формат строки, записываемой в ClickHouse,
 // менять их нельзя без синхронного изменения ClickHouse-таблиц, MV и SDK.
 type TrackEvent struct {
 	EventID        string `json:"event_id"`

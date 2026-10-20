@@ -53,8 +53,8 @@ test: ## Юнит-тесты (pytest)
 lint: ## Линтер (ruff)
 	$(PYTHON) -m ruff check apps tests sdk
 
-go-test: ## Тесты Go (трекер и sdk/go)
-	cd apps/track_api_go && go test -race ./...
+go-test: ## Тесты Go (сервис synaq и sdk/go)
+	cd apps/synaq && go test -race ./...
 	cd sdk/go && go test -race ./...
 
 # Клиент ClickHouse внутри контейнера; логин и пароль берутся из окружения контейнера

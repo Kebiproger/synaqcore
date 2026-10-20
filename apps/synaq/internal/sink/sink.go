@@ -1,6 +1,5 @@
 // Package sink описывает абстракцию приёмника событий трекинга.
-// Реализации: Kafka-продюсер (internal/kafka, полный режим) и прямая запись
-// в ClickHouse по HTTP (internal/sink/clickhouse, lite-режим без брокера).
+// Реализация: прямая запись в ClickHouse по HTTP (internal/sink/clickhouse).
 package sink
 
 import (
@@ -16,7 +15,7 @@ var (
 	ErrClosed = errors.New("приёмник событий закрыт")
 )
 
-// Producer публикует сериализованные события в хранилище или брокер.
+// Producer публикует сериализованные события в хранилище.
 type Producer interface {
 	// Publish синхронно отправляет сообщение и ждёт подтверждения доставки.
 	Publish(ctx context.Context, topic string, key, payload []byte) error

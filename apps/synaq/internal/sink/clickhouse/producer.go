@@ -1,10 +1,9 @@
 // Package clickhouse реализует sink.Producer с прямой записью событий в ClickHouse
-// по HTTP-интерфейсу (lite-режим без Kafka/Redpanda).
+// по HTTP-интерфейсу (без брокера сообщений).
 //
 // События копятся в ограниченном буфере и отправляются фоновым горутином батчами
-// (по размеру или по таймеру) запросом INSERT ... FORMAT JSONEachRow. Формат строки
-// совпадает с сообщением, которое в полном режиме уходит в Kafka, поэтому таблица
-// tracking_events получает одинаковые данные в обоих режимах.
+// (по размеру или по таймеру) запросом INSERT ... FORMAT JSONEachRow. Строка батча —
+// JSON-сериализация track.TrackEvent, её поля совпадают со столбцами tracking_events.
 package clickhouse
 
 import (
@@ -21,7 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"track_api_go/internal/sink"
+	"synaq/internal/sink"
 )
 
 // Проверка на этапе компиляции: Producer реализует sink.Producer и sink.Pinger.

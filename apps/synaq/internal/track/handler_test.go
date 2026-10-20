@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"track_api_go/internal/sink"
+	"synaq/internal/sink"
 
 	"github.com/gin-gonic/gin"
 )
