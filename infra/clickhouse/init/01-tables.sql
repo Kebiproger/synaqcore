@@ -1,6 +1,5 @@
--- Хранилище событий. Используется в обоих режимах:
---   full: заполняется MV из Kafka (см. 02-kafka.sql);
---   lite: Go-трекер пишет сюда напрямую (HTTP INSERT), 02-kafka.sql не монтируется.
+-- Хранилище событий. synaq (Go) пишет сюда напрямую батчами по HTTP (INSERT),
+-- без Kafka. Дедупликация — ReplacingMergeTree по event_id в ORDER BY.
 CREATE TABLE IF NOT EXISTS tracking_events (
     timestamp DateTime64(3, 'UTC'),
     user_id String,

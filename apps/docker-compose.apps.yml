@@ -1,45 +1,53 @@
+# Lite-стек: synaq (Go-монолит: выдача вариантов + admin API + трекер) и analytics_api.
+# Исходники apps/experiment_api и apps/track_api_go остаются в репозитории как
+# эталон контракта, но в рантайм не входят.
 services:
-  experiment_api:
-    container_name: experiment_api
-    build: experiment_api
+  synaq:
+    container_name: synaq
+    build: ./synaq
     env_file: .env.apps
     environment:
+      # События пишутся напрямую в ClickHouse (батчами по HTTP), без Kafka
+      EVENT_SINK: clickhouse
+      CLICKHOUSE_URL: ${CLICKHOUSE_URL:-http://clickhouse:8123}
+      # Бизнес-БД — отдельный postgres-app (учётка POSTGRES_USER/_PASSWORD/_DB из .env.apps)
+      POSTGRES_HOST: postgres-app
+      POSTGRES_PORT: 5432
       # Zitadel OIDC; можно переопределить в shell/корневом .env
       OIDC_ISSUER: ${OIDC_ISSUER:-http://localhost:${ZITADEL_PORT:-8081}}
       OIDC_JWKS_URL: ${OIDC_JWKS_URL:-http://zitadel:8080/oauth/v2/keys}
       OIDC_JWKS_HOST: ${OIDC_JWKS_HOST:-localhost:${ZITADEL_PORT:-8081}}
       OIDC_CONFIG_FILE: ${OIDC_CONFIG_FILE:-/zitadel-public/oidc.json}
-    networks:
-      - ab_testing_net
+      # Мягкий лимит кучи Go ниже mem_limit: GC ужесточается до OOM-kill
+      GOMEMLIMIT: 192MiB
     volumes:
-      - ./experiment_api:/app
       # Публичная OIDC-конфигурация (issuer, project_id, client_id) от zitadel-init
       - ../infra/zitadel/public:/zitadel-public:ro
-    command: "uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    
-  track_api:
-    container_name: track_api
-    build: track_api_go
-    env_file: .env.apps
     networks:
       - ab_testing_net
+    mem_limit: 256m
+    # Hardening: статический бинарник, ФС только для чтения, без capabilities
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=8m,mode=1777
     depends_on:
-      redpanda-init:
-        condition: service_completed_successfully
+      postgres-app:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8000/health || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8000/health/track || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 3
       start_period: 5s
     restart: unless-stopped
-    # Graceful shutdown трекера: до 5 с на остановку HTTP и до 5 с на дозапись буфера
-    # (Kafka Flush / ClickHouse CloseTimeout). Стандартных 10 с Docker не хватает с запасом,
+    # Graceful shutdown: до 5 с на остановку HTTP и до 5 с на дозапись буфера
+    # в ClickHouse (CloseTimeout). Стандартных 10 с Docker не хватает с запасом,
     # после них контейнер получает SIGKILL и принятые события теряются.
     stop_grace_period: 20s
 
@@ -53,12 +61,22 @@ services:
       OIDC_JWKS_URL: ${OIDC_JWKS_URL:-http://zitadel:8080/oauth/v2/keys}
       OIDC_JWKS_HOST: ${OIDC_JWKS_HOST:-localhost:${ZITADEL_PORT:-8081}}
       OIDC_CONFIG_FILE: ${OIDC_CONFIG_FILE:-/zitadel-public/oidc.json}
+      # Код из образа (без bind mount): .pyc в read-only ФС не пишем
+      PYTHONDONTWRITEBYTECODE: "1"
+    # Без --reload и без монтирования исходников: CMD образа
+    # (uvicorn src.main:app --host 0.0.0.0 --port 8000). Изменения кода — через --build.
+    volumes:
+      - ../infra/zitadel/public:/zitadel-public:ro
     networks:
       - ab_testing_net
-    volumes:
-      - ./analytics_api:/app
-      - ../infra/zitadel/public:/zitadel-public:ro
-    command: "uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload"
+    mem_limit: 512m
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -76,6 +94,7 @@ services:
     build: ./dashboard
     environment:
       ZITADEL_ORIGIN: http://localhost:${ZITADEL_PORT:-8081}
+    mem_limit: 64m
     # Hardening: корневая ФС только для чтения, без capabilities.
     # nginx-unprivileged пишет только в /tmp (pid, *_temp) и /etc/nginx/conf.d
     # (envsubst рендерит шаблоны при старте); логи идут в stdout/stderr.

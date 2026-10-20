@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<!--
+  Lite-профиль запросов (профиль default — его получает и пользователь из CLICKHOUSE_USER).
+  Лимиты согласованы с config.d/low-memory.xml (сервер ~1152 МиБ при mem_limit 1536m).
+-->
+<clickhouse>
+    <profiles>
+        <default>
+            <!-- 2 vCPU: не даём одному аналитическому запросу занять все ядра -->
+            <max_threads>2</max_threads>
+            <!-- Потолок памяти одного запроса (~763 МиБ) -->
+            <max_memory_usage>800000000</max_memory_usage>
+            <!-- GROUP BY / ORDER BY сверх ~381 МиБ уходят на диск вместо ошибки по памяти -->
+            <max_bytes_before_external_group_by>400000000</max_bytes_before_external_group_by>
+            <max_bytes_before_external_sort>400000000</max_bytes_before_external_sort>
+        </default>
+    </profiles>
+</clickhouse>
