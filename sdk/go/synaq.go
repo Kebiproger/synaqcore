@@ -6,10 +6,10 @@ package synaq
 import (
 	"bytes"
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"math/big"
+	"math"
+	"math/bits"
 	"net/http"
 	"sort"
 	"strings"
@@ -24,6 +24,9 @@ type ExperimentConfig struct {
 	Config   map[string]interface{} `json:"config"`
 	URL      *string                `json:"url"`
 }
+
+// allocationBuckets — число бакетов распределения (шаг 0.01%).
+const allocationBuckets = 10000
 
 type evalResponse struct {
 	Experiments map[string]ExperimentConfig `json:"experiments"`
@@ -151,39 +154,53 @@ func (c *Client) GetVariant(experimentName, userID string) string {
 		return c.fallbackVariant
 	}
 
-	var totalWeight int
-	keys := make([]string, 0, len(exp.Variants))
-	for k, w := range exp.Variants {
-		totalWeight += w
+	return allocate(userID, experimentName, exp.Variants, c.fallbackVariant)
+}
+
+// allocate — детерминированный выбор варианта. Алгоритм обязан совпадать с
+// get_user_variant() в experiment_api (apps/experiment_api/src/services/allocation.py)
+// и с Python SDK; паритет закреплён golden-векторами в synaq_test.go.
+//
+// bucket = SHA-256(user_id:experiment_name) mod 10000 (0..9999). Варианты
+// перебираются по имени в алфавитном порядке (sort.Strings == Python sorted()
+// для ASCII-имён): порядок ключей JSON не гарантирован. Вариант выбирается,
+// если bucket/10000 < cumulative/total; сравнение в целых числах
+// (bucket*total < cumulative*10000, 128-битное умножение), без float.
+func allocate(userID, experimentName string, variants map[string]int, fallback string) string {
+	if len(variants) == 0 {
+		return fallback
+	}
+
+	var total uint64
+	keys := make([]string, 0, len(variants))
+	for k, w := range variants {
+		// Неположительные веса сервер не принимает; сумма не должна переполняться.
+		if w <= 0 || uint64(w) > math.MaxUint64-total {
+			return fallback
+		}
+		total += uint64(w)
 		keys = append(keys, k)
 	}
-
-	if totalWeight <= 0 {
-		return c.fallbackVariant
-	}
-
 	sort.Strings(keys)
 
-	// Детерминированный хэш: SHA-256(user_id:experiment_name) -> bucket [0.00 .. 99.99]
-	input := fmt.Sprintf("%s:%s", userID, experimentName)
-	hash := sha256.Sum256([]byte(input))
-	hexStr := hex.EncodeToString(hash[:])
+	sum := sha256.Sum256([]byte(userID + ":" + experimentName))
+	// mod 10000 по big-endian байтам хэша == int(hash_hex, 16) % 10000 в Python.
+	var bucket uint64
+	for _, b := range sum {
+		bucket = (bucket*256 + uint64(b)) % allocationBuckets
+	}
 
-	n := new(big.Int)
-	n.SetString(hexStr, 16)
-	mod := new(big.Int).Mod(n, big.NewInt(10000))
-	bucket := float64(mod.Int64()) / 100.0
-
-	var cumulative float64
+	lhsHi, lhsLo := bits.Mul64(bucket, total)
+	var cumulative uint64
 	for _, k := range keys {
-		w := exp.Variants[k]
-		cumulative += (float64(w) / float64(totalWeight)) * 100.0
-		if bucket < cumulative {
+		cumulative += uint64(variants[k])
+		rhsHi, rhsLo := bits.Mul64(cumulative, allocationBuckets)
+		if lhsHi < rhsHi || (lhsHi == rhsHi && lhsLo < rhsLo) {
 			return k
 		}
 	}
 
-	return c.fallbackVariant
+	return fallback
 }
 
 // Track sends a conversion event asynchronously to Go Tracker.

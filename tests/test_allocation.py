@@ -2,14 +2,16 @@
 
 Алгоритм:
   hash = SHA-256(f"{user_id}:{experiment_name}")
-  bucket = int(hash, 16) % 10000 / 100.0   # → 0.00 .. 99.99
-  scaled = bucket / 100.0 * sum(weights)
+  bucket = int(hash, 16) % 10000           # → 0 .. 9999
   cumulative = 0
-  for variant, weight in variants:
+  for variant, weight in sorted(variants.items()):   # алфавитный порядок
       cumulative += weight
-      if scaled < cumulative → return variant
+      if bucket * sum(weights) < cumulative * 10000 → return variant
   return "control"
 """
+
+import hashlib
+import itertools
 
 from src.services.allocation import get_user_variant
 
@@ -116,3 +118,79 @@ class TestEdgeCases:
             v = get_user_variant(f"ns_{i}", "ns_exp", {"A": 1, "B": 1, "C": 1})
             results.add(v)
         assert results == {"A", "B", "C"}, f"1+1+1: {results}"
+
+
+class TestCanonicalOrder:
+    """Результат не зависит от порядка ключей в словаре вариантов.
+
+    Конфиг приходит то из Redis (порядок из запроса), то из Postgres JSONB
+    (ключи отсортированы по длине, затем по байтам). Варианты перебираются
+    в алфавитном порядке, иначе после истечения TTL кэша вариант менялся.
+    """
+
+    N = 10_000
+
+    def _assert_order_independent(self, exp: str, variants_a: dict, variants_b: dict):
+        assert list(variants_a) != list(variants_b), "порядки должны отличаться"
+        for i in range(self.N):
+            user_id = f"order_user_{i}"
+            assert get_user_variant(user_id, exp, variants_a) == get_user_variant(user_id, exp, variants_b), (
+                f"Порядок ключей изменил вариант для {user_id}"
+            )
+
+    def test_two_variants_insertion_order(self):
+        self._assert_order_independent(
+            "order_exp", {"treatment": 50, "control": 50}, {"control": 50, "treatment": 50}
+        )
+
+    def test_three_variants_unequal_weights_all_permutations(self):
+        weights = {"variant_long": 20, "b": 30, "control": 50}
+        base = dict(sorted(weights.items()))
+        for perm in itertools.permutations(weights):
+            reordered = {k: weights[k] for k in perm}
+            if list(reordered) == list(base):
+                continue
+            self._assert_order_independent("order_three", base, reordered)
+
+    def test_jsonb_order_matches_request_order(self):
+        """Порядок «как прислали» и порядок, в котором JSONB отдаёт ключи."""
+        request_order = {"treatment": 50, "control": 50}
+        jsonb_order = dict(sorted(request_order.items(), key=lambda kv: (len(kv[0]), kv[0].encode())))
+        self._assert_order_independent("jsonb_exp", request_order, jsonb_order)
+
+    def test_alphabetical_order_is_canonical(self):
+        """Бакет 0 всегда попадает в первый по алфавиту вариант."""
+        exp = "canon_exp"
+        user_id = next(
+            f"u{i}" for i in range(100_000)
+            if int(hashlib.sha256(f"u{i}:{exp}".encode()).hexdigest(), 16) % 10000 == 0
+        )
+        assert get_user_variant(user_id, exp, {"zeta": 50, "alpha": 50}) == "alpha"
+
+
+class TestExactBoundaries:
+    """Сравнение bucket/10000 < cumulative/total выполняется в целых числах."""
+
+    @staticmethod
+    def _user_with_bucket(exp: str, bucket: int) -> str:
+        i = 0
+        while True:
+            user_id = f"edge_user_{i}"
+            if int(hashlib.sha256(f"{user_id}:{exp}".encode()).hexdigest(), 16) % 10000 == bucket:
+                return user_id
+            i += 1
+
+    def test_bucket_on_boundary_goes_to_next_variant(self):
+        # 50/50: бакет 4999 -> A, ровно 5000 -> B.
+        assert get_user_variant(self._user_with_bucket("half", 4999), "half", {"A": 50, "B": 50}) == "A"
+        assert get_user_variant(self._user_with_bucket("half", 5000), "half", {"A": 50, "B": 50}) == "B"
+
+    def test_float_rounding_boundary(self):
+        # a=2, b=9, c=33 (total 44): бакет 2500 ровно на границе b/c (2500*44 == 11*10000).
+        # Float-сравнение в старом SDK относило его к "b".
+        user_id = self._user_with_bucket("edge_a", 2500)
+        assert get_user_variant(user_id, "edge_a", {"a": 2, "b": 9, "c": 33}) == "c"
+
+    def test_non_positive_weights_fallback(self):
+        assert get_user_variant("u", "e", {"A": 0, "B": 100}) == "control"
+        assert get_user_variant("u", "e", {"A": -5, "B": 100}) == "control"

@@ -102,20 +102,23 @@ class SynaqServerClient:
         if not variants or not isinstance(variants, dict):
             return self.fallback_variant
 
-        total_weight = sum(variants.values())
-        if total_weight <= 0:
+        # Алгоритм обязан совпадать с get_user_variant() в experiment_api
+        # (apps/experiment_api/src/services/allocation.py) и с Go SDK.
+        if any(w <= 0 for w in variants.values()):
             return self.fallback_variant
+        total_weight = sum(variants.values())
 
-        # Детерминированный хэш: SHA-256(user_id:experiment_name) -> bucket [0.00 .. 99.99]
+        # Детерминированный хэш: SHA-256(user_id:experiment_name) -> bucket 0..9999
         key = f"{user_id}:{experiment_name}".encode("utf-8")
         hash_hex = hashlib.sha256(key).hexdigest()
-        bucket = (int(hash_hex, 16) % 10000) / 100.0
+        bucket = int(hash_hex, 16) % 10000
 
-        # Нормализованные кумулятивные границы по отсортированным ключам
-        cumulative = 0.0
+        # Канонический порядок — по имени варианта (порядок ключей JSON не гарантирован).
+        # Целочисленное сравнение bucket/10000 < cumulative/total без float-округления.
+        cumulative = 0
         for variant_name, weight in sorted(variants.items()):
-            cumulative += (weight / total_weight) * 100.0
-            if bucket < cumulative:
+            cumulative += weight
+            if bucket * total_weight < cumulative * 10000:
                 return variant_name
 
         return self.fallback_variant

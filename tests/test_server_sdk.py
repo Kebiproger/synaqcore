@@ -67,3 +67,30 @@ def test_fallback_on_missing_experiment(mock_server_client):
     """Неизвестный эксперимент возвращает fallbackVariant."""
     variant = mock_server_client.get_variant("non_existent_test", "usr_1")
     assert variant == "control"
+
+
+PARITY_CONFIGS = {
+    "parity_control_v2": {"control": 50, "v2": 50},
+    "parity_treatment_control": {"treatment": 50, "control": 50},
+    "parity_three_way": {"red": 20, "blue": 30, "control": 50},
+    "parity_single": {"only": 100},
+}
+
+
+@pytest.mark.parametrize("exp_name", sorted(PARITY_CONFIGS))
+def test_sdk_parity_with_server_10k_users(exp_name):
+    """Server SDK и get_user_variant() сервера дают одинаковый вариант на 10k пользователей,
+    в том числе когда SDK получил ключи в другом порядке (как из JSONB)."""
+    variants = PARITY_CONFIGS[exp_name]
+    reversed_variants = dict(reversed(list(variants.items())))
+    client = SynaqServerClient(base_url="http://fake-host:8080", auto_start=False)
+    client._experiments = {exp_name: {"name": exp_name, "variants": reversed_variants, "is_active": True}}
+
+    seen = set()
+    for i in range(10_000):
+        user_id = f"parity_user_{i}"
+        core_variant = get_user_variant(user_id=user_id, experiment_name=exp_name, variants=variants)
+        sdk_variant = client.get_variant(exp_name, user_id)
+        assert sdk_variant == core_variant, f"{exp_name}, user_id={user_id}: SDK={sdk_variant}, сервер={core_variant}"
+        seen.add(core_variant)
+    assert seen == set(variants), f"{exp_name}: выданы не все варианты: {seen}"
