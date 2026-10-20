@@ -32,7 +32,6 @@ _SYNTHETIC_ENV = {
     "CLICKHOUSE_HTTP_PORT": "8123",
     "CLICKHOUSE_USER": "test_user",
     "CLICKHOUSE_PASSWORD": "test_password",
-    "CORS_ORIGINS": "*",
 }
 for _key, _value in _SYNTHETIC_ENV.items():
     os.environ.setdefault(_key, _value)

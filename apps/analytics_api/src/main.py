@@ -3,9 +3,7 @@ Analytics API — Выделенный микросервис для тяжел�
 """
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
-from src.core.config import settings
 from src.api.v1.stats import router as stats_router
 
 app = FastAPI(
@@ -14,24 +12,9 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS
-origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
-if not origins or origins == ["*"]:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-else:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+# CORS намеренно не настраивается: /api/v1/stats/ вызывается только same-origin
+# (дашборд отдаётся тем же gateway), а CORS для публичных маршрутов единолично
+# выставляет nginx/nginx.conf.
 
 app.include_router(stats_router, prefix="/api/v1")
 

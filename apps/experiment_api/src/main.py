@@ -1,7 +1,6 @@
 import logging
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from src.core.redis import redis_cache
 from src.core.database import init_db, dispose_db
 from contextlib import asynccontextmanager
@@ -34,13 +33,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS здесь намеренно не настраивается: сервис доступен только через gateway
+# (nginx/nginx.conf), который единолично выставляет Access-Control-* для публичных
+# маршрутов SDK. Второй слой давал дубль Access-Control-Allow-Origin, и браузеры
+# отклоняли кросс-доменные ответы.
 
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(client.router, prefix="/api/v1")

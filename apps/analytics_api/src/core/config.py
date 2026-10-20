@@ -5,7 +5,6 @@ class Settings(BaseSettings):
     CLICKHOUSE_HTTP_PORT: int = 8123
     CLICKHOUSE_USER: str = "default"
     CLICKHOUSE_PASSWORD: str = ""
-    CORS_ORIGINS: str = "*"
 
     # Zitadel OIDC: пустые значения → защищённые эндпоинты отвечают 503 (fail closed)
     OIDC_ISSUER: str = ""
