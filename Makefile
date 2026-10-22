@@ -28,6 +28,10 @@ up: check-masterkey ## Поднять весь стек (docker compose up -d --
 # Мастер-ключ Zitadel нельзя сменить после первой инициализации, поэтому не даём
 # стартовать с образцовым ключом из документации или ключом неверной длины.
 # Сам ключ никогда не печатается: grep -q и подсчёт длины в подоболочке.
+# Значение разбирается как в env-файле docker compose: CRLF, отступ, "export ",
+# пробелы вокруг "="; в кавычках берётся содержимое (# — часть значения, хвост
+# после закрывающей кавычки игнорируется); без кавычек отрезается " #комментарий"
+# и хвостовые пробелы. Используется последняя строка ZITADEL_MASTERKEY=.
 ENV_INFRA := infra/.env.infra
 SAMPLE_MASTERKEY := MasterkeyNeedsToHave32Characters
 
@@ -39,11 +43,15 @@ check-masterkey: ## Проверить ZITADEL_MASTERKEY в infra/.env.infra (н
 		echo "ZITADEL_MASTERKEY в $(ENV_INFRA) — образцовый ключ из документации." >&2; \
 		echo "Сгенерируйте свой: tr -dc A-Za-z0-9 </dev/urandom | head -c 32" >&2; exit 1; \
 	fi
-	@status=$$(sed -n 's/^[[:space:]]*ZITADEL_MASTERKEY=//p' $(ENV_INFRA) | tail -n 1 | tr -d '\r' | \
-		sed -e 's/^"\(.*\)"$$/\1/' -e "s/^'\(.*\)'$$/\1/" | \
+	@status=$$(tr -d '\r' < $(ENV_INFRA) | \
+		sed -n 's/^[[:space:]]*\(export[[:space:]][[:space:]]*\)\{0,1\}ZITADEL_MASTERKEY[[:space:]]*=[[:space:]]*//p' | \
+		tail -n 1 | \
+		sed -e 's/^"\([^"]*\)".*$$/\1/' -e t -e "s/^'\([^']*\)'.*$$/\1/" -e t \
+			-e 's/[[:space:]]#.*$$//' -e 's/[[:space:]]*$$//' | \
 		{ IFS= read -r key; [ $${#key} -eq 32 ] && echo OK || echo FAIL; }); \
 	if [ "$$status" != OK ]; then \
 		echo "ZITADEL_MASTERKEY в $(ENV_INFRA) должен быть ровно 32 символа." >&2; \
+		echo "Проверьте, что не скопирован символ % в конце вывода tr (zsh) и нет лишних символов." >&2; \
 		echo "Сгенерируйте: tr -dc A-Za-z0-9 </dev/urandom | head -c 32" >&2; exit 1; \
 	fi
 
