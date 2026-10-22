@@ -1,7 +1,7 @@
 """Аутентификация через Zitadel OIDC (JWT access token + JWKS) и проверка ролей.
 
-Копия apps/experiment_api/src/core/auth.py (сервисы деплоятся независимо).
-При изменении логики синхронизируйте оба файла.
+Тот же контракт реализует Go-сервис synaq (apps/synaq/internal/auth/auth.go).
+При изменении логики синхронизируйте обе реализации.
 
 Как это работает:
   1. Клиент присылает `Authorization: Bearer <JWT>` (access token от Zitadel).

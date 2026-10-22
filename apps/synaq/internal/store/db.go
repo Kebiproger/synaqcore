@@ -27,7 +27,7 @@ var migrationsFS embed.FS
 // публикует {"op": TG_OP, "name": <имя эксперимента>} при любом изменении строки.
 const NotifyChannel = "experiments_changed"
 
-// Переменные окружения те же, что у apps/experiment_api (src/core/config.py).
+// Переменные окружения те же, что у Python-версии experiment_api (тег v1-python).
 var dsnEnvVars = []string{"POSTGRES_HOST", "POSTGRES_PORT", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"}
 
 // DSNFromEnv собирает DSN PostgreSQL из POSTGRES_HOST/PORT/USER/PASSWORD/DB.

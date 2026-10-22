@@ -1,7 +1,0 @@
-fastapi[standard]
-redis>=8,<9
-sqlalchemy[asyncio]
-pydantic-settings
-asyncpg
-httpx
-PyJWT[crypto]>=2.8,<3

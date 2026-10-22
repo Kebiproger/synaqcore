@@ -15,7 +15,7 @@ import (
 	"synaq/internal/model"
 )
 
-// Ограничения схем; совпадают с apps/experiment_api/src/schemas/experiment.py.
+// Ограничения схем; совпадают с pydantic-схемами Python-версии experiment_api (тег v1-python).
 const (
 	NamePattern       = "^[A-Za-z0-9_.-]+$"
 	VariantKeyPattern = "^[A-Za-z0-9_-]+$"

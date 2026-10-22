@@ -158,7 +158,7 @@ func (c *Client) GetVariant(experimentName, userID string) string {
 }
 
 // allocate — детерминированный выбор варианта. Алгоритм обязан совпадать с
-// get_user_variant() в experiment_api (apps/experiment_api/src/services/allocation.py)
+// сервером (apps/synaq/internal/allocation, golden-векторы в testdata/golden.json)
 // и с Python SDK; паритет закреплён golden-векторами в synaq_test.go.
 //
 // bucket = SHA-256(user_id:experiment_name) mod 10000 (0..9999). Варианты

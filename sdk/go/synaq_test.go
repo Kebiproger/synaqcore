@@ -61,7 +61,7 @@ func BenchmarkGetVariant(b *testing.B) {
 }
 
 // goldenVectors сгенерированы Python-функцией сервера get_user_variant()
-// (apps/experiment_api/src/services/allocation.py). Если тест падает — Go SDK
+// (Python-версия experiment_api, тег v1-python); эталон сервера synaq — apps/synaq/internal/allocation/testdata/golden.json. Если тест падает — Go SDK
 // разошёлся с сервером: пользователи получат разные варианты в SDK и через API.
 // Последние строки — точные границы бакетов, где float-сравнение ошибалось.
 var goldenVectors = []struct {

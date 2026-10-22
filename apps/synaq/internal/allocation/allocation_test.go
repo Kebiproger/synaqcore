@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// goldenVector — ожидание, посчитанное Python-сервером (testdata/gen.py).
+// goldenVector — ожидание, посчитанное Python-сервером (gen.py в теге v1-python).
 type goldenVector struct {
 	Source     string           `json:"source"`
 	UserID     string           `json:"user_id"`

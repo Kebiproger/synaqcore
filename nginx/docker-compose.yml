@@ -15,8 +15,9 @@ services:
     restart: unless-stopped
     mem_limit: 64m
     depends_on:
+      # Не открываем трафик, пока synaq не загрузил конфигурации (/readyz)
       synaq:
-        condition: service_started
+        condition: service_healthy
       analytics_api:
         condition: service_started
       dashboard:

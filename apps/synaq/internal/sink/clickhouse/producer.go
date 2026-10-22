@@ -47,8 +47,11 @@ const (
 	DefaultCloseTimeout     = 5 * time.Second
 )
 
-// Максимум байт тела ответа с ошибкой, который попадает в лог.
+// Максимум байт тела ответа, который читается (ping) или разбирается в поисках кода ошибки.
 const maxErrorBody = 1 << 10
+
+// errorCodePrefixLen — сколько байт начала тела ответа читается ради префикса "Code: NNN.".
+const errorCodePrefixLen = 32
 
 // Config — настройки продюсера. Нулевые значения заменяются значениями по умолчанию.
 type Config struct {
@@ -390,9 +393,36 @@ func (p *Producer) send(body []byte) (retryable bool, err error) {
 		return false, nil
 	}
 
-	msg, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
-	_, _ = io.Copy(io.Discard, resp.Body)
-	err = fmt.Errorf("ClickHouse вернул статус %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
+	// Текст ошибки ClickHouse может цитировать данные событий (PII, переводы строк для
+	// подделки логов), поэтому в лог идут только статус и числовой код ошибки.
+	prefix, _ := io.ReadAll(io.LimitReader(resp.Body, errorCodePrefixLen))
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxErrorBody))
+	err = fmt.Errorf("ClickHouse вернул статус %d (код ошибки ClickHouse: %s)", resp.StatusCode,
+		errorCode(resp.Header.Get("X-ClickHouse-Exception-Code"), prefix))
 	retryable = resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests
 	return retryable, err
+}
+
+// errorCode возвращает числовой код ошибки ClickHouse: из заголовка
+// X-ClickHouse-Exception-Code, иначе из префикса тела "Code: NNN.". Возвращаются
+// только цифры (не больше 6), остальной текст отбрасывается; без кода — "неизвестен".
+func errorCode(header string, body []byte) string {
+	if code := leadingDigits(strings.TrimSpace(header)); code != "" {
+		return code
+	}
+	if rest, ok := strings.CutPrefix(string(body), "Code: "); ok {
+		if code := leadingDigits(rest); code != "" {
+			return code
+		}
+	}
+	return "неизвестен"
+}
+
+// leadingDigits возвращает ведущие ASCII-цифры s (не больше 6).
+func leadingDigits(s string) string {
+	n := 0
+	for n < len(s) && n < 6 && s[n] >= '0' && s[n] <= '9' {
+		n++
+	}
+	return s[:n]
 }

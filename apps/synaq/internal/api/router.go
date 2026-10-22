@@ -39,7 +39,7 @@ func NewRouter(d Deps) *gin.Engine {
 	router.GET("/", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "Hello, World!"})
 	})
-	// /health — как у experiment_api: процесс жив, зависимости не проверяются.
+	// /health — процесс жив, зависимости не проверяются.
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "healthy"})
 	})

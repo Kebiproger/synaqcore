@@ -1,6 +1,6 @@
 // Package variants — публичная раздача вариантов (/api/v1/variants/...).
 //
-// Совместима с apps/experiment_api/src/api/v1/client.py: те же пути, JSON,
+// Совместима с Python-версией experiment_api (тег v1-python): те же пути, JSON,
 // коды ответов и тексты detail. Читает только снимок кэша конфигураций
 // (model.Cache), в БД не ходит.
 package variants
@@ -24,7 +24,7 @@ import (
 // Prefix — общий префикс маршрутов раздачи вариантов.
 const Prefix = "/api/v1/variants"
 
-// Тексты detail, совпадающие с experiment_api.
+// Тексты detail, совпадающие с Python-версией experiment_api (тег v1-python).
 const (
 	detailNotFound = "Эксперимент не найден"
 	detailRequired = "experiment_name и user_id обязательны"

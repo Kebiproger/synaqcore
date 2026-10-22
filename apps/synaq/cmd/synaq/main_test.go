@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -72,5 +74,51 @@ func TestClickhouseConfigFromEnv_Invalid(t *testing.T) {
 				t.Error("ожидалась ошибка")
 			}
 		})
+	}
+}
+
+// blockingPinger ждёт отмены контекста, как зависший ClickHouse.
+type blockingPinger struct{}
+
+func (blockingPinger) Ping(ctx context.Context) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+type errPinger struct{ err error }
+
+func (p errPinger) Ping(context.Context) error { return p.err }
+
+func TestCheckClickHouse_ErrorIsReturnedNotFatal(t *testing.T) {
+	want := errors.New("connection refused")
+	if err := checkClickHouse(context.Background(), errPinger{want}, time.Second); !errors.Is(err, want) {
+		t.Fatalf("err = %v, want %v", err, want)
+	}
+	if err := checkClickHouse(context.Background(), errPinger{}, time.Second); err != nil {
+		t.Fatalf("доступный ClickHouse: err = %v", err)
+	}
+}
+
+func TestCheckClickHouse_Timeout(t *testing.T) {
+	start := time.Now()
+	err := checkClickHouse(context.Background(), blockingPinger{}, 50*time.Millisecond)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want DeadlineExceeded", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("проверка заняла %v, таймаут не соблюдён", d)
+	}
+}
+
+func TestCheckClickHouse_ShutdownInterrupts(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // SIGTERM пришёл во время старта
+	start := time.Now()
+	err := checkClickHouse(ctx, blockingPinger{}, time.Minute)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want Canceled", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("проверка заняла %v, отмена контекста не учтена", d)
 	}
 }

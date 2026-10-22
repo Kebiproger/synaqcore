@@ -1,5 +1,5 @@
 // Package validate разбирает и проверяет тела запросов API экспериментов по тем
-// же правилам, что и pydantic-схемы experiment_api (apps/experiment_api/src/schemas/experiment.py).
+// же правилам, что и pydantic-схемы Python-версии experiment_api (тег v1-python).
 //
 // Совместимость с FastAPI:
 //   - коды ответа совпадают: 422 для ошибок валидации, 400 для тела, которое

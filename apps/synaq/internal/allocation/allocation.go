@@ -1,13 +1,14 @@
 // Package allocation — детерминированное распределение пользователей по вариантам.
 //
-// Правило (должно совпадать с experiment_api, sdk/python и sdk/go):
+// Правило (должно совпадать с sdk/python, sdk/go и Python-версией сервера, тег v1-python):
 // bucket = int(SHA-256("<user_id>:<experiment_name>"), 16) % 10000; варианты
 // обходятся в алфавитном порядке, побеждает первый, для которого
 // bucket * total < cumulative * 10000 (точная целочисленная арифметика).
 //
-// Паритет с Python-сервером (get_user_variant в
-// apps/experiment_api/src/services/allocation.py) закреплён golden-векторами
-// в testdata/golden.json (генерируются testdata/gen.py).
+// Паритет с Python-сервером (get_user_variant в experiment_api, тег v1-python /
+// история main) закреплён golden-векторами в testdata/golden.json. Их сгенерировал
+// скрипт testdata/gen.py Python-версии (он остался в теге v1-python); в lite
+// закоммиченный golden.json и есть эталон.
 package allocation
 
 import (

@@ -70,16 +70,27 @@ func clickhouseConfigFromEnv() (chsink.Config, error) {
 	return cfg, nil
 }
 
-// Параметры проверки ClickHouse при старте.
-const (
-	clickhouseStartupAttempts = 5
-	clickhouseStartupDelay    = 2 * time.Second
-	clickhousePingTimeout     = 3 * time.Second
-)
+// clickhousePingTimeout ограничивает проверку ClickHouse при старте.
+const clickhousePingTimeout = 3 * time.Second
 
-// newClickHouseProducer создаёт продюсер lite-режима (прямая запись в ClickHouse)
-// и ждёт доступности ClickHouse; если он так и не ответил — фатальная ошибка.
-func newClickHouseProducer() sink.Producer {
+// pinger — часть sink.Producer, нужная для стартовой проверки (выделено для тестов).
+type pinger interface {
+	Ping(ctx context.Context) error
+}
+
+// checkClickHouse делает одну best-effort проверку ClickHouse при старте. Ошибка
+// не фатальна: выдача вариантов и admin API от ClickHouse не зависят, приёмник сам
+// повторяет запись и отвечает 503, когда буфер заполнен, а /health/track показывает
+// состояние приёмника. Ожидание ограничено таймаутом и прерывается по ctx (SIGTERM).
+func checkClickHouse(ctx context.Context, p pinger, timeout time.Duration) error {
+	pingCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return p.Ping(pingCtx)
+}
+
+// newClickHouseProducer создаёт продюсер lite-режима (прямая запись в ClickHouse).
+// Недоступность ClickHouse при старте только логируется — сервис стартует.
+func newClickHouseProducer(ctx context.Context) sink.Producer {
 	cfg, err := clickhouseConfigFromEnv()
 	if err != nil {
 		log.Fatal(err)
@@ -88,21 +99,9 @@ func newClickHouseProducer() sink.Producer {
 	if err != nil {
 		log.Fatalf("Ошибка настройки ClickHouse-приёмника: %v", err)
 	}
-
-	for attempt := 1; ; attempt++ {
-		ctx, cancel := context.WithTimeout(context.Background(), clickhousePingTimeout)
-		err = producer.Ping(ctx)
-		cancel()
-		if err == nil {
-			break
-		}
-		if attempt == clickhouseStartupAttempts {
-			_ = producer.Close()
-			log.Fatalf("ClickHouse недоступен после %d попыток: %v", attempt, err)
-		}
-		log.Printf("ClickHouse недоступен (попытка %d из %d), повтор через %v: %v",
-			attempt, clickhouseStartupAttempts, clickhouseStartupDelay, err)
-		time.Sleep(clickhouseStartupDelay)
+	if err := checkClickHouse(ctx, producer, clickhousePingTimeout); err != nil {
+		log.Printf("ВНИМАНИЕ: ClickHouse недоступен при старте, продолжаем без него "+
+			"(события буферизуются и повторяются, при заполнении буфера — 503): %v", err)
 	}
 	log.Printf("Приёмник событий: ClickHouse (%s)", cfg.URL)
 	return producer
@@ -156,7 +155,7 @@ func main() {
 	}()
 
 	verifier := auth.NewVerifier(auth.ConfigFromEnv())
-	producer := newClickHouseProducer()
+	producer := newClickHouseProducer(shutdownCtx)
 
 	gin.SetMode(ginMode())
 	router := api.NewRouter(api.Deps{

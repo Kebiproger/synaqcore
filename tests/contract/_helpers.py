@@ -7,7 +7,7 @@ BUCKETS = 10000
 
 
 def expected_variant(user_id: str, experiment_name: str, variants: dict[str, int]) -> str:
-    """Эталонное правило аллокации (копия, т.к. Python experiment_api уходит из lite):
+    """Эталонное правило аллокации (копия: Python-версия experiment_api — тег v1-python):
     bucket = SHA-256("user_id:experiment_name") % 10000, варианты по алфавиту,
     первый с bucket * total < cumulative * 10000 (целочисленно)."""
     if not variants or any(w <= 0 for w in variants.values()):

@@ -1,5 +1,5 @@
 -- Таблица experiments. DDL совпадает с тем, что создаёт SQLAlchemy create_all
--- в apps/experiment_api (src/core/database.py), поэтому IF NOT EXISTS: на базе,
+-- в Python-версии experiment_api (тег v1-python), поэтому IF NOT EXISTS: на базе,
 -- уже созданной Python-сервисом, миграция ничего не меняет.
 
 -- +goose Up

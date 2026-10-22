@@ -1,5 +1,4 @@
 # Зависимости сервисов (пути -r считаются относительно этого файла)
--r ../apps/experiment_api/requirements.txt
 -r ../apps/analytics_api/requirements.txt
 
 pytest>=8.0

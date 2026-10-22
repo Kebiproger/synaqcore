@@ -13,8 +13,8 @@ import pytest
 
 from tests._isolated_import import ANALYTICS_API_DIR, load_analytics_modules
 
-# Движок анализа живёт только в analytics_api: загружаем его изолированно,
-# т.к. conftest.py кладёт в sys.path experiment_api (оба сервиса — пакет `src`).
+# Движок анализа живёт только в analytics_api: загружаем его изолированно
+# (пакет `src`, см. tests/_isolated_import.py).
 _statistical, _business, _segmentation, _recommendations = load_analytics_modules(
     "src.services.analysis.statistical",
     "src.services.analysis.business",

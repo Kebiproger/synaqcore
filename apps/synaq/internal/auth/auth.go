@@ -1,5 +1,5 @@
 // Package auth — проверка JWT (RS256) от Zitadel и авторизация по ролям проекта.
-// Контракт совпадает с src/core/auth.py в experiment_api: fail closed (503, если
+// Контракт совпадает с apps/analytics_api/src/core/auth.py: fail closed (503, если
 // OIDC не настроен или JWKS недоступен), 401 для невалидного токена, 403 без нужной роли.
 //
 // Как это работает:

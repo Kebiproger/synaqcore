@@ -87,7 +87,7 @@ func (r *Repository) Create(ctx context.Context, e model.Experiment) error {
 
 // Update применяет патч в одной транзакции под SELECT ... FOR UPDATE: проверка
 // активности и запись атомарны относительно параллельных PATCH. Правило 409 как в
-// experiment_api: варианты переданы, отличаются от текущих (равенство словарей) и
+// Python-версии experiment_api (тег v1-python): варианты переданы, отличаются от текущих (равенство словарей) и
 // эксперимент активен после применения is_active из того же запроса.
 func (r *Repository) Update(ctx context.Context, name string, p model.ExperimentPatch) (model.Experiment, error) {
 	var updated model.Experiment

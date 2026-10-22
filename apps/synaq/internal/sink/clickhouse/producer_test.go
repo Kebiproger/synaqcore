@@ -383,8 +383,10 @@ func TestFinalFailureCallsOnDone(t *testing.T) {
 		t.Fatalf("onDone вызван %d раз, want 3", len(errs))
 	}
 	for i, err := range errs {
-		if err == nil || !strings.Contains(err.Error(), "500") {
-			t.Errorf("onDone #%d: %v, want ошибку со статусом 500", i, err)
+		if err == nil || !strings.Contains(err.Error(), "500") || !strings.Contains(err.Error(), "241") {
+			t.Errorf("onDone #%d: %v, want ошибку со статусом 500 и кодом 241", i, err)
+		} else if strings.Contains(err.Error(), "тестовая ошибка") {
+			t.Errorf("onDone #%d: текст ответа ClickHouse попал в ошибку: %v", i, err)
 		}
 	}
 	if n := len(ch.snapshot()); n != 3 {

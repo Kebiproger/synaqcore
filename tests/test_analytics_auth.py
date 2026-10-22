@@ -1,7 +1,7 @@
 """Тесты OIDC-аутентификации analytics_api (stats router + /health).
 
-analytics_api и experiment_api оба используют пакет верхнего уровня `src`,
-поэтому модули analytics_api загружаются изолированно: на время импорта все
+Модули analytics_api (пакет верхнего уровня `src`) загружаются изолированно:
+на время импорта все
 `src.*` из sys.modules убираются, в sys.path первым ставится apps/analytics_api,
 после импорта прежнее состояние sys.modules / sys.path восстанавливается.
 Загруженные модули analytics_api дальше используются как обычные объекты.
@@ -40,10 +40,6 @@ STATS_FULL = "/api/v1/stats/test_exp_1"
 def test_loaded_modules_are_from_analytics_api():
     assert a_auth.__file__.startswith(ANALYTICS_API_DIR)
     assert a_stats.__file__.startswith(ANALYTICS_API_DIR)
-    # experiment_api копия src.* не затронута
-    from src.core import auth as exp_auth
-    assert exp_auth is not a_auth
-    assert "experiment_api" in exp_auth.__file__
 
 
 @pytest.fixture(autouse=True)
@@ -193,7 +189,7 @@ class TestAnalyticsAuth:
 
 
 class TestAnalyticsExperimentNameRule:
-    """Имена экспериментов в analytics совпадают с правилом experiment_api (с точкой)."""
+    """Имена экспериментов в analytics совпадают с правилом synaq (с точкой)."""
 
     def test_dotted_name_passes_validation(self, http, fetch, clickhouse):
         resp = http.get("/api/v1/stats/test.exp_1", headers=bearer(make_token(["analyst"])))

@@ -1,6 +1,5 @@
 # Lite-стек: synaq (Go-монолит: выдача вариантов + admin API + трекер) и analytics_api.
-# Исходники apps/experiment_api и apps/track_api_go остаются в репозитории как
-# эталон контракта, но в рантайм не входят.
+# Python experiment_api и Go track_api с Kafka/Redis — Python-версия (тег v1-python).
 services:
   synaq:
     container_name: synaq
@@ -39,8 +38,10 @@ services:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
+    # Готовность = снимок конфигураций загружен из Postgres (/readyz). Доступность
+    # ClickHouse для мониторинга — отдельно, GET /health/track (через gateway).
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8000/health/track || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8000/readyz || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 3

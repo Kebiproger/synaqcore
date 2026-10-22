@@ -40,7 +40,7 @@ CLICKHOUSE_HTTP = (
 CLICKHOUSE_USER = settings.CLICKHOUSE_USER
 CLICKHOUSE_PASS = settings.CLICKHOUSE_PASSWORD
 
-# Имена экспериментов: то же правило, что в experiment_api (EXPERIMENT_NAME_PATTERN).
+# Имена экспериментов: то же правило, что в synaq (apps/synaq/internal/api/validate).
 # Имя подставляется в SQL только внутри строкового литерала '...', никогда как
 # идентификатор; набор символов исключает кавычки, обратный слеш и пробелы (CWE-89).
 _EXPERIMENT_NAME = re.compile(r"[A-Za-z0-9_.\-]{1,50}")

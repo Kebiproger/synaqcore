@@ -14,7 +14,7 @@ import (
 var (
 	// ErrNotFound — эксперимент не найден (404).
 	ErrNotFound = errors.New("эксперимент не найден")
-	// ErrExists — эксперимент с таким именем уже существует (400, как в experiment_api).
+	// ErrExists — эксперимент с таким именем уже существует (400, как в Python-версии experiment_api, тег v1-python).
 	ErrExists = errors.New("эксперимент уже существует")
 	// ErrActiveVariantsChange — попытка изменить варианты активного эксперимента (409).
 	ErrActiveVariantsChange = errors.New("нельзя менять варианты активного эксперимента")
@@ -50,7 +50,7 @@ type ExperimentPatch struct {
 	IsActive  *bool
 }
 
-// Empty сообщает, что в патче нет ни одного поля (experiment_api отвечает 400).
+// Empty сообщает, что в патче нет ни одного поля (400, как в Python-версии experiment_api, тег v1-python).
 func (p ExperimentPatch) Empty() bool {
 	return p.Variants == nil && !p.ConfigSet && !p.URLSet && p.IsActive == nil
 }
