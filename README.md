@@ -1,18 +1,16 @@
 <div align="center">
   <h1>SynaqCore</h1>
-  <p><b>Self-hosted платформа серверных A/B/n-экспериментов:<br>
-  детерминированное распределение без обращений к БД, приём событий через Kafka (Redpanda)<br>
-  и статистика на ClickHouse</b></p>
+  <p><b>Self-hosted платформа серверных A/B/n-экспериментов на одном VPS 4 ГБ:<br>
+  детерминированное распределение из памяти, приём событий прямо в ClickHouse<br>
+  и статистика (частотная и байесовская)</b></p>
 
   <!-- Badges -->
   <p>
-    <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go">
+    <img src="https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go">
     <img src="https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.11+">
-    <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI">
-    <img src="https://img.shields.io/badge/Redpanda/Kafka-FA233B?style=for-the-badge&logo=redpanda&logoColor=white" alt="Redpanda">
     <img src="https://img.shields.io/badge/ClickHouse-FFCC00?style=for-the-badge&logo=clickhouse&logoColor=black" alt="ClickHouse">
     <img src="https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL">
-    <img src="https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white" alt="Redis">
+    <img src="https://img.shields.io/badge/Zitadel-OIDC-6C47FF?style=for-the-badge" alt="Zitadel">
     <img src="https://img.shields.io/badge/Nginx-009639?style=for-the-badge&logo=nginx&logoColor=white" alt="Nginx">
     <img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
   </p>
@@ -24,35 +22,35 @@
 
 ---
 
-> **Статус.** Портфолио / pet-project. Стек поднимается одной командой и готов к self-hosted пилоту
-> на одном сервере. До продакшена не хватает TLS, полноценного A/B/n-анализа (сейчас статистика
-> сравнивает контроль с одним вариантом) и мониторинга — см. [ограничения](#ограничения-и-планы).
+> **Статус.** Портфолио / pet-project, ветка `lite`. Стек поднимается одной командой и рассчитан на self-hosted
+> пилот на одном VPS (2 vCPU / 4 ГБ). До продакшена не хватает TLS, полноценного A/B/n-анализа и мониторинга —
+> см. [дорожную карту](#дорожная-карта). Предыдущая распределённая Python-версия (Redis, Kafka) доступна по тегу `v1-python`.
 
 ## Содержание
 
 - [Архитектура](#архитектура)
-- [Демо за 5 минут](#демо-за-5-минут)
+- [Быстрый старт](#быстрый-старт)
+- [Бюджет памяти](#бюджет-памяти)
 - [Ключевые инженерные решения](#ключевые-инженерные-решения)
-- [main vs lite](#main-vs-lite)
-- [Почему не GrowthBook/PostHog?](#почему-не-growthbookposthog)
-- [Технологический стек](#технологический-стек)
-- [Подробный запуск и конфигурация](#подробный-запуск-и-конфигурация)
+- [Честные компромиссы lite](#честные-компромиссы-lite)
+- [Почему SynaqCore, если есть PostHog](#почему-synaqcore-если-есть-posthog)
+- [Конфигурация](#конфигурация)
 - [Аутентификация и роли](#аутентификация-и-роли)
 - [API](#api)
 - [Интеграция и SDK](#интеграция-и-sdk)
 - [Аналитика и статистика](#аналитика-и-статистика)
-- [Схема данных ClickHouse](#схема-данных-clickhouse)
 - [Структура репозитория](#структура-репозитория)
 - [Тесты и CI](#тесты-и-ci)
-- [Ограничения и планы](#ограничения-и-планы)
+- [Дорожная карта](#дорожная-карта)
 - [Документация](#документация)
 
 ---
 
 ## Архитектура
 
-Пути чтения (выдача варианта) и записи (приём событий) разделены: выдача вариантов — Python + Redis + Postgres,
-приём событий — Go → Redpanda → ClickHouse без промежуточных воркеров, тяжёлая аналитика — отдельный сервис.
+Горячий путь — один Go-процесс `synaq`: он раздаёт варианты из снимка конфигураций в памяти, обслуживает admin API
+и принимает события, которые батчами пишет прямо в ClickHouse. Тяжёлая статистика — отдельный Python-сервис.
+Redis и брокера сообщений нет.
 
 ```mermaid
 flowchart LR
@@ -60,69 +58,60 @@ flowchart LR
     U["Админ / аналитик"] --> GW
     U -->|"OIDC login (PKCE)"| ZT
 
-    subgraph public["Публично (без токена)"]
-        EXP_PUB["/api/v1/variants/*<br/>limit 50 r/s с IP"]
-        TRK["/api/v1/tracker/events<br/>limit 200 r/s с IP"]
-    end
-    subgraph jwt["JWT (Zitadel)"]
-        EXP_ADM["/api/v1/experiments/*<br/>запись: admin<br/>чтение: admin, analyst"]
-        STATS["/api/v1/stats/*<br/>admin, analyst"]
+    subgraph SQ["synaq (Go)"]
+        VAR["Варианты<br/>/api/v1/variants/*<br/>из кэша в памяти"]
+        ADM["Admin API<br/>/api/v1/experiments/*<br/>JWT"]
+        TRK["Трекер<br/>/api/v1/tracker/events<br/>буфер в памяти"]
     end
 
-    GW --> EXP_PUB & EXP_ADM
-    GW --> TRK
-    GW --> STATS
+    GW -->|"публично, 50 r/s с IP"| VAR
+    GW -->|"JWT: admin / analyst"| ADM
+    GW -->|"публично, 200 r/s с IP"| TRK
+    GW -->|"JWT: admin / analyst"| AAPI["analytics_api<br/>Python, /api/v1/stats/"]
     GW --> DASH["dashboard<br/>React SPA, /dashboard/"]
+    GW -->|":8081"| ZT["Zitadel (OIDC)"]
 
-    EXP_PUB & EXP_ADM --> EAPI["experiment_api<br/>FastAPI"]
-    EAPI --> PG[("PostgreSQL<br/>эксперименты")]
-    EAPI --> RD[("Redis<br/>кэш конфигов")]
-
-    TRK --> TAPI["track_api<br/>Go + franz-go"]
-    TAPI -->|"topic tracking_events"| RP[["Redpanda"]]
-    RP --> KQ["ClickHouse<br/>Kafka engine → MV"]
-    KQ --> CH[("tracking_events<br/>ReplacingMergeTree")]
-
-    STATS --> AAPI["analytics_api<br/>FastAPI"]
+    ADM -->|"SQL"| PGA[("postgres-app<br/>эксперименты")]
+    PGA -->|"LISTEN/NOTIFY<br/>+ перечитывание 30 с"| VAR
+    TRK -->|"INSERT батчами"| CH[("ClickHouse<br/>tracking_events")]
     AAPI --> CH
-
-    ZT["Zitadel (OIDC)<br/>127.0.0.1:8081"] --> PG
-    EAPI -. JWKS .-> ZT
+    ZT --> PGZ[("postgres-zitadel")]
+    ADM -. JWKS .-> ZT
     AAPI -. JWKS .-> ZT
 ```
 
 | Путь | Сервис | Доступ |
 |---|---|---|
-| `/api/v1/variants/` (`/{name}`, `/batch`, `/active`, `/config/{name}`, `/eval-configs`) | `experiment_api` | публично, `limit_req` 50 r/s с IP (burst 100) → `429` |
-| `/api/v1/experiments/` | `experiment_api` | JWT: `POST` / `PATCH` / `DELETE` — `admin`; `GET` — `admin` или `analyst` |
-| `/api/v1/tracker/events` | `track_api` (Go) | публично, `limit_req` 200 r/s с IP (burst 400) → `429` |
+| `/api/v1/variants/` (`/{name}`, `/batch`, `/active`, `/config/{name}`, `/eval-configs`) | `synaq` | публично, `limit_req` 50 r/s с IP (burst 100) → `429` |
+| `/api/v1/experiments/` | `synaq` | JWT: `POST` / `PATCH` / `DELETE` — `admin`; `GET` — `admin` или `analyst` |
+| `/api/v1/tracker/events` | `synaq` | публично, `limit_req` 200 r/s с IP (burst 400) → `429` |
+| `/health`, `/health/track` | `synaq` | процесс жив / ClickHouse доступен |
 | `/api/v1/stats/` | `analytics_api` | JWT: `admin` или `analyst` |
 | `/dashboard/` (`/admin` → 302) | `dashboard` | вход через Zitadel |
 | `127.0.0.1:8081` | Zitadel | отдельный server-блок gateway (корневые пути Zitadel конфликтуют с путями платформы) |
 
-Наружу публикуется только gateway, и только на `127.0.0.1`. Postgres, Redis, Redpanda и ClickHouse доступны лишь во внутренней сети `ab_testing_net`.
+Наружу публикуется только gateway, и только на `127.0.0.1`. Postgres и ClickHouse доступны лишь во внутренней
+сети `ab_testing_net`. Подробно — [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md), обоснование —
+[ADR 0002](docs/adr/0002-lite-go-monolith.md).
 
 ---
 
-## Демо за 5 минут
+## Быстрый старт
 
 Нужны Docker Engine 24+ с Compose v2, `make`, `curl`, `jq` и Python 3.11+ с `httpx` (есть в `./venv`, если он создан).
-
-> **Если стек уже запускался раньше.** Init-скрипты ClickHouse выполняются только на пустом томе, поэтому существующий
-> том сохраняет старую схему Kafka-engine (до исправления `02-kafka.sql` очередь и MV на ClickHouse 24.8 вообще не
-> создавались — события оседают в Redpanda, а `/stats` пуст). Перед демо выполните `make ch-reset` (пересоздаёт
-> `tracking_events_queue` и `tracking_events_mv` из `02-kafka.sql`, данные `tracking_events` не трогает) или
-> `docker compose down -v` (удаляет **все** тома, включая Postgres и Zitadel).
 
 ```bash
 git clone https://github.com/Kebiproger/synaqcore.git && cd synaqcore
 
-# 1. Окружение. В infra/.env.infra обязательно задать переменные ZITADEL_* —
-#    список и требования в CLAUDE.md (раздел Commands) и ниже, в «Подробном запуске».
+# 1. Окружение. Пароли и ключи Zitadel — см. «Конфигурация» ниже.
+#    POSTGRES_USER/_PASSWORD/_DB в обоих файлах должны совпадать.
 cp apps/.env.apps.example apps/.env.apps
 cp infra/.env.infra.example infra/.env.infra
+#    ZITADEL_MASTERKEY — свой, ровно 32 символа (менять после первого запуска нельзя);
+#    make up откажется стартовать с пустым, образцовым или ключом неверной длины:
+tr -dc A-Za-z0-9 </dev/urandom | head -c 32; echo   # вставьте в ZITADEL_MASTERKEY= в infra/.env.infra
 
-# 2. Весь стек: инфраструктура, сервисы, gateway, Zitadel и его bootstrap
+# 2. Весь стек: Postgres x2, ClickHouse, Zitadel и его bootstrap, synaq, analytics_api, дашборд, gateway
 make up
 
 # 3. JWT сервисного аккаунта synaq-automation (роль admin) в SYNAQ_TOKEN
@@ -132,6 +121,18 @@ eval "$(make -s token)"
 make demo
 # с параметрами: make demo DEMO_ARGS="--users 1000 --seed 42 --uplift 0.2"
 ```
+
+> **Первый запуск — на свежих томах.** Lite использует другие тома, чем Python-версия (`postgres-app`,
+> `postgres-zitadel`, ClickHouse только с `01-tables.sql`). Если в этом каталоге раньше запускался старый checkout
+> (Python-версия), Zitadel создаст новый инстанс с новым `project_id`, а старые `infra/zitadel/public/oidc.json`
+> и `secrets/automation.json` будут указывать на прежний — токены не пройдут проверку `aud`. Перед первым
+> `make up` выполните при остановленном стеке:
+>
+> ```bash
+> docker compose down -v   # УДАЛЯЕТ ВСЕ ДАННЫЕ стека (тома Postgres, Zitadel, ClickHouse)
+> make zitadel-reset       # удаляет сгенерированные oidc.json / automation.json / bootstrap.pat (спросит подтверждение)
+> make up
+> ```
 
 Что делает `make demo` (`sdk/demo_simulator.py`, все флаги — `--help`):
 
@@ -146,9 +147,6 @@ make demo
 Ожидаемый вывод (сокращённо, числа зависят от seed):
 
 ```text
-========================================================================
-SynaqCore demo: эксперимент 'demo_checkout_button', 5000 пользователей, ...
-========================================================================
 [1/5] Проверка шлюза
 [2/5] Эксперимент
 [3/5] Распределение по вариантам (режим local)
@@ -157,31 +155,39 @@ SynaqCore demo: эксперимент 'demo_checkout_button', 5000 пользо
 [5/5] Ожидание данных в ClickHouse (до 60 с)
 
 Отчёт /api/v1/stats/demo_checkout_button ...
-Вариант        Польз.  Конверсий  Конверсия   | отправлено: польз./конв.
-...
 Статистика
   Относительный uplift:       +...%
-  95% ДИ uplift:              [...]
   p-value (z-тест):           ...
   P(treatment > control):     ...%
-Рекомендации
-  * ...
 ```
 
 Затем откройте дашборд: **http://localhost:8080/dashboard/** — логин `<ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME>@synaqcore.localhost`
 и пароль из `infra/.env.infra` (при первом входе Zitadel попросит его сменить).
 
-<!-- TODO: добавить скриншоты в docs/img/ и раскомментировать:
-![Список экспериментов](docs/img/dashboard-list.png)
-![Результаты эксперимента](docs/img/dashboard-results.png)
-![Вывод make demo](docs/img/demo-output.png)
--->
+Smoke-проверка HTTP-API synaq без основного стека: `make smoke` (поднимает отдельный docker-стенд, прогоняет 59
+тестов и сносит его). Остановить стек: `make down`. Все команды: `make help`.
 
-Остановить стек: `make down`. Все команды: `make help`.
+Если `/stats` так и не показал данных: `docker compose logs synaq clickhouse` и `curl http://localhost:8080/health/track`.
 
-Если `/stats` так и не показал данных: проверьте, что очередь и MV существуют
-(`docker compose exec clickhouse clickhouse-client -q "SHOW TABLES"` — должны быть `tracking_events_queue` и
-`tracking_events_mv`), и при необходимости выполните `make ch-reset`.
+---
+
+## Бюджет памяти
+
+Лимиты заданы `mem_limit` в compose-файлах; Go-процессам выставлен `GOMEMLIMIT` ниже лимита, чтобы GC срабатывал
+раньше OOM-kill.
+
+| Контейнер | `mem_limit` | Примечание |
+|---|---:|---|
+| `clickhouse` | 1536 МБ | урезанный конфиг (`infra/clickhouse/config.d`, `users.d`) |
+| `zitadel` | 512 МБ | `GOMEMLIMIT=400MiB` |
+| `analytics_api` | 512 МБ | Монте-Карло в пуле потоков |
+| `synaq` | 256 МБ | `GOMEMLIMIT=192MiB`, буфер событий ≤ 64 МиБ |
+| `postgres-app` | 256 МБ | `shared_buffers=64MB` |
+| `postgres-zitadel` | 256 МБ | `shared_buffers=32MB` |
+| `gateway` | 64 МБ | nginx |
+| `dashboard` | 64 МБ | статика |
+| **Итого долгоживущие** | **≈ 3.4 ГБ** | остаток 4 ГБ — ОС и page cache |
+| `zitadel-dbinit` / `zitadel-setup` / `zitadel-init` | 256 / 512 / 64 МБ | одноразовые, отрабатывают до старта `zitadel` (init — сразу после), пики не складываются |
 
 ---
 
@@ -189,157 +195,118 @@ SynaqCore demo: эксперимент 'demo_checkout_button', 5000 пользо
 
 - **Детерминированное stateless-распределение.** `bucket = int(SHA-256("{user_id}:{experiment}"), 16) % 10000`;
   варианты перебираются в **алфавитном порядке**, выбирается первый, для которого `bucket * total < cumulative * 10000`
-  (целочисленная арифметика, без float). *Зачем:* назначения не хранятся в БД — выдача варианта не пишет в базу и
-  масштабируется горизонтально, а серверные SDK (`sdk/python`, `sdk/go`) считают вариант локально и получают тот же
-  ответ. *Почему по алфавиту:* конфиг приходит то из Redis (порядок ключей из запроса), то из Postgres JSONB,
-  который порядок ключей не сохраняет (сортирует по длине, затем по байтам). При обходе в порядке словаря
-  `{"treatment": 50, "control": 50}` после истечения TTL кэша менял вариант у части пользователей.
-  Сортировка делает порядок каноническим; совпадение сервера и SDK закреплено тестами и golden-векторами.
-- **Zero-worker ingestion.** Go-трекер публикует JSON в топик `tracking_events`, а ClickHouse сам вычитывает его
-  через `ENGINE = Kafka` и materialized view в рабочую таблицу. *Зачем:* нет отдельного консьюмера, который надо
-  деплоить, масштабировать и мониторить; Redpanda остаётся долговременным буфером, если ClickHouse недоступен.
-  Битые сообщения не останавливают чтение топика (`kafka_handle_error_mode = 'stream'`, MV отбрасывает строки с `_error`).
-- **Дедупликация по `event_id`.** `ReplacingMergeTree(timestamp)` с `ORDER BY (event_name, user_id, event_id, toDate(timestamp))`;
-  если клиент не передал `event_id`, его генерирует трекер (а JS SDK — ещё раньше, на клиенте, чтобы ретраи из браузера
-  несли один и тот же id). Серверным клиентам стоит передавать свой идемпотентный ключ (например, id заказа):
-  сгенерированный трекером id у повторной отправки будет другим. *Зачем:* доставка at-least-once (ретраи браузера, повторы
-  продюсера) даёт дубликаты. Схлопывание происходит при фоновых слияниях, поэтому метрики дополнительно считаются
-  через `countDistinct(user_id)` и на конверсию дубликаты не влияют.
-- **Аналитика — отдельный сервис (bulkhead).** `analytics_api` обслуживает `/api/v1/stats/` и ходит только в
-  ClickHouse; Монте-Карло выполняется в `asyncio.to_thread`. *Зачем:* тяжёлый запрос аналитика не может съесть CPU
-  и пул соединений сервиса, который отдаёт варианты пользователям.
-- **Redis circuit breaker.** Таймауты 0.3 с, один повтор; после ошибки Redis пропускается 5 с и конфиг читается
-  из Postgres (с повторным кэшированием). *Зачем:* падение кэша замедляет выдачу, но не роняет её. Чтобы это
-  нельзя было превратить в DoS на Postgres, публичный `/api/v1/variants/` ограничен в nginx.
+  (целочисленная арифметика). Назначения не хранятся: выдача варианта ничего не пишет, а серверные SDK
+  (`sdk/python`, `sdk/go`) считают тот же ответ локально. Порядок ключей не используется, потому что Postgres JSONB
+  его не сохраняет. Паритет с Python-версией закреплён golden-векторами (`apps/synaq/internal/allocation/testdata/golden.json`).
+- **Конфиги в памяти вместо Redis.** Неизменяемый снимок всех экспериментов (активных и выключенных), горячий путь —
+  один `atomic.Load`. `/config/{name}` отдаёт и выключенный эксперимент, `/active` и `/eval-configs` фильтруют активные.
+  Обновление: сразу после записи через admin API, по Postgres `LISTEN/NOTIFY` (триггер на таблице `experiments`)
+  и полным перечитыванием раз в 30 с на случай потерянного уведомления. Если Postgres недоступен, раздаётся
+  последний снимок. Gateway ждёт `/readyz` synaq (снимок загружен).
+- **Прямая запись в ClickHouse.** Ограниченный буфер (10 000 событий / 64 МиБ), батчи по 1000 событий или раз в
+  секунду (`INSERT ... FORMAT JSONEachRow`, async insert), ретраи с backoff. Подробно —
+  [docs/clickhouse-kafka/README.md](docs/clickhouse-kafka/README.md).
+- **Дедупликация по `event_id`.** `ReplacingMergeTree(timestamp)` с `ORDER BY (event_name, user_id, event_id, toDate(timestamp))`.
+  Метрики конверсии считаются через `countDistinct(user_id)`, поэтому несхлопнутые дубликаты на них не влияют.
+- **Аналитика — отдельный сервис (bulkhead).** `analytics_api` ходит только в ClickHouse; тяжёлый отчёт не отнимает
+  CPU у выдачи вариантов.
 - **Fail-closed JWT.** Только RS256, ключи из JWKS Zitadel, проверка `iss`, `aud` (= project_id), `exp` и
-  обязательного `jti` (ID token как bearer не проходит); роли — только из проектного claim. Если OIDC не настроен
-  или JWKS недоступен — `503`, а не пропуск без проверки.
-- **Backpressure в трекере.** Очередь продюсера ограничена (по умолчанию 10 000 сообщений); если брокер не
-  успевает, трекер сразу отвечает `503` с `Retry-After: 1`, а не копит события в памяти до OOM.
-- **Окно timestamp.** Трекер принимает события не старше 7 дней и не дальше 5 минут в будущем (миллисекунды Unix;
-  `0` — подставить серверное время). *Зачем:* иначе анонимный клиент мог прислать события за сотни месяцев:
-  вставка задевала больше `max_partitions_per_insert_block` партиций (`PARTITION BY toYYYYMM`), Kafka-движок
-  бесконечно повторял «ядовитый» батч, и приём вставал для всех.
-- **Лимиты на входе.** nginx: `limit_req` на `/api/v1/variants/` (50 r/s с IP) и `/api/v1/tracker/` (200 r/s с IP).
-  Трекер: тело ≤ 64 КБ (`413`), строковые поля ≤ 256 символов и `event_data` ≤ 16 КБ (`400`).
-- **Валидация всего, что попадает в SQL.** ClickHouse-запросы собираются строкой, поэтому `goal_event`, шаги воронки
-  и guardrail-события проверяются regex, сегменты — regex + экранирование (не больше 10), `metric_field` — по
-  whitelist, `limit` — как целое. Тексты ошибок ClickHouse пишутся в лог и не возвращаются клиенту.
+  обязательного `jti`; роли — только из проектного claim. OIDC не настроен или JWKS недоступен → `503`.
+- **Строгая валидация.** Admin API отвечает `422` в формате FastAPI, но без приведения типов (`"5"` вместо `5` —
+  ошибка). Трекер: тело ≤ 64 КБ (`413`), строки ≤ 256 символов, `event_data` ≤ 16 КБ, `timestamp` в окне
+  [сейчас − 7 дней, сейчас + 5 минут] (`400`) — иначе одна вставка задевала бы слишком много месячных партиций.
+- **Валидация всего, что попадает в SQL.** Запросы `analytics_api` к ClickHouse собираются строкой, поэтому
+  `goal_event`, шаги воронки, guardrail-события, сегменты, `metric_field` и `limit` проверяются; в synaq SQL к
+  Postgres только параметризованный (sqlc).
+- **Отдельный Postgres для Zitadel.** IdP и бизнес-данные не делят ни БД, ни учётки; суперпользователь нужен
+  только одноразовому `zitadel-dbinit`.
 
 ---
 
-## main vs lite
+## Честные компромиссы lite
 
-| | **main** (эта ветка) | **lite** (в разработке, ветка `lite` ещё не создана) |
-|---|---|---|
-| Назначение | «enterprise»-вариант, демонстрация распределённой архитектуры | минимальный self-hosted для стартапа |
-| Выдача вариантов и admin API | Python `experiment_api` + Redis | один Go-сервис: варианты + трекер + admin API |
-| Конфиги экспериментов | Redis → Postgres | в памяти процесса; обновление по Postgres `LISTEN/NOTIFY` + полная перезагрузка раз в 30 с |
-| Приём событий | Go → Redpanda → ClickHouse Kafka engine | Go пишет напрямую в ClickHouse батчами (`EVENT_SINK=clickhouse`, уже реализовано в `apps/track_api_go/internal/sink/clickhouse`) |
-| Postgres | общий для экспериментов и Zitadel | отдельные инстансы для бизнес-данных и для Zitadel |
-| Redis / Kafka | есть | нет |
-| Аналитика | `analytics_api` (Python) | остаётся Python |
-| Целевая площадка | несколько сервисов, горизонтальное масштабирование | 1 VPS, 2 vCPU / 4 GB, ~1–2 тыс. событий/с |
-
-**Честный компромисс lite:** без Kafka нет долговременного буфера. Пока ClickHouse недоступен, события ждут в
-ограниченном буфере в памяти трекера (с ретраями); когда он заполнится, клиенты получают `503` + `Retry-After`,
-а при перезапуске процесса содержимое буфера теряется. Для A/B-аналитики это приемлемо (SDK повторяют отправку,
-потеря доли процента событий не меняет вывод), для биллинга — нет.
-
----
-
-## Почему не GrowthBook/PostHog?
-
-GrowthBook, PostHog, Statsig и Unleash заметно зрелее: больше интеграций, готовые UI для фича-флагов и
-таргетинга, проверенные статистические движки. SynaqCore их не заменяет. Зачем он существует:
-
-- **Учебная и портфолио-цель.** Пройти весь путь самому: детерминированный бакетинг, ingestion-пайплайн,
-  ClickHouse, OIDC, статистика — и уметь объяснить каждое решение.
-- **Серверное детерминированное распределение без обращения к БД на запрос.** Вариант вычисляется из хеша,
-  серверные SDK считают его локально по кэшу конфигов (`/api/v1/variants/eval-configs`, опрос раз в 30 с).
-- **Self-hosted с полным контролем над статистикой.** Движок (z-тест, интервалы Уилсона, байесовский
-  Монте-Карло, рекомендации) написан на чистом Python без scipy и целиком читается и меняется.
-- **Минимальный footprint в lite.** Цель — один Go-бинарь + Postgres + ClickHouse на одном небольшом VPS.
+- **Нет Kafka — нет долговременного буфера.** `200` от трекера значит «принято в буфер в памяти», а не «записано».
+  Если ClickHouse недоступен, батч, не записанный за 5 попыток (паузы 0.2 → 0.4 → 0.8 → 1.6 с; в худшем случае батч занимает ~3 с, если соединение отклоняется, и до
+  ~53 с, если ClickHouse завис (5 × таймаут 10 с + паузы)), отбрасывается с записью
+  в лог; буфер заполняется, и клиенты получают `503` + `Retry-After: 1`. При падении процесса содержимое буфера теряется (при
+  штатной остановке synaq дописывает его до 5 с). Для A/B-аналитики это приемлемо — потеря доли процента событий
+  не меняет вывод, а SDK повторяют отправку; для биллинга — нет.
+- **ClickHouse влияет только на приём событий.** Выдача вариантов и admin API от него не зависят: synaq стартует и
+  работает и при недоступном ClickHouse (при старте — лишь предупреждение в логе), `/health/track` показывает
+  состояние приёмника, а трекер отвечает `503`, когда буфер заполнится.
+- **Дедупликация по `event_id` — только при слияниях ClickHouse.** Суммы (например, выручка) до фонового слияния
+  могут учесть дубликат.
+- **Трекер сам генерирует `event_id`, если клиент его не прислал.** Тогда повтор того же события получит другой id
+  и не схлопнется. JS SDK генерирует id на клиенте; серверным клиентам стоит передавать свой идемпотентный ключ
+  (например, id заказа) и повторять `503` с ним же.
+- **Один инстанс synaq.** Реплики возможны (каждая держит свой снимок), но в lite не настроены.
 
 ---
 
-## Технологический стек
+## Почему SynaqCore, если есть PostHog
 
-| Компонент | Технология | Роль | Порт |
-|-----------|-----------|------|------|
-| **Gateway** | nginx | Единая точка входа, маршрутизация по префиксу, rate limit, раздача `/sdk/` | `127.0.0.1:8080` (хост) |
-| **Track API** | Go, Gin, franz-go | Приём событий, валидация, публикация в Redpanda | `8000` |
-| **Брокер** | Redpanda v26 (Kafka API) | Топик `tracking_events` (4 партиции, ключ — `user_id`) | `9092` |
-| **OLAP** | ClickHouse 24.8 | Kafka engine + MV, хранение событий, агрегации | `8123`, `9000` |
-| **Experiment API** | Python 3.11, FastAPI | CRUD экспериментов, выдача вариантов | `8000` |
-| **Analytics API** | Python 3.11, FastAPI | Статистика экспериментов (изолирована от выдачи вариантов) | `8000` |
-| **Dashboard** | React, Vite, Tailwind | SPA управления экспериментами и просмотра результатов | `/dashboard/` |
-| **IdP** | Zitadel | OIDC/OAuth2: вход в дашборд, JWT для API, роли `admin` / `analyst` | `127.0.0.1:8081` (хост) |
-| **Metadata DB** | PostgreSQL 16 | Эксперименты и веса вариантов; отдельная БД `zitadel` | `5432` |
-| **Cache** | Redis 7.2 | Кэш конфигов экспериментов | `6379` |
+PostHog, GrowthBook и Statsig зрелее: больше интеграций, фича-флаги, таргетинг, проверенные статистические движки.
+**Если вашей команде подходит облако в США или ЕС, бесплатный тариф PostHog Cloud — лучший выбор**: ничего не
+нужно администрировать. SynaqCore нужен в другом случае:
+
+- **Self-hosted на 4 ГБ / ~€5 в месяц.** Весь стек помещается в один небольшой VPS. Официальный self-hosted
+  деплой PostHog требует ~16 ГБ RAM, тянет Kafka, ClickHouse, Redis и ещё десяток сервисов и позиционируется как
+  «hobby» — без поддержки для продакшена.
+- **Данные остаются на вашем сервере.** Важно, когда законы о локализации данных (например, 152-ФЗ) или политика
+  компании не позволяют отправлять поведенческие данные в зарубежное облако.
+- **Нет оплаты за событие.** Стоимость — цена VPS, а не объём трафика.
+- **Свой домен — меньше потерь от блокировщиков.** SDK и трекер работают с вашего домена (first-party), их не режут
+  списки блокировки сторонней аналитики.
+- **Серверное распределение.** Вариант считается детерминированно, Go и Python SDK делают это локально в памяти
+  бэкенда без сетевого вызова на запрос.
+- **Только A/B.** Нет сессий, heatmaps и продуктовой аналитики — меньше кода, памяти и поверхности атаки. Движок
+  статистики (z-тест, интервалы Уилсона, байесовский Монте-Карло) написан на чистом Python и целиком читается.
 
 ---
 
-## Подробный запуск и конфигурация
+## Конфигурация
 
-В `infra/.env.infra` обязательно задайте ключи Zitadel (без них `docker compose` не стартует):
+В `infra/.env.infra` обязательно задайте (без них `docker compose` не стартует):
 
 | Ключ | Значение |
 |------|----------|
-| `ZITADEL_MASTERKEY` | Случайная строка **ровно из 32 символов** (`openssl rand -hex 16`). Шифрует данные Zitadel — после первой инициализации её нельзя изменить. |
-| `ZITADEL_DATABASE_POSTGRES_USER_PASSWORD` | Пароль пользователя `zitadel` в PostgreSQL (создаётся Zitadel автоматически). |
-| `ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME` | То же значение, что `POSTGRES_USER`. |
-| `ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD` | То же значение, что `POSTGRES_PASSWORD`. |
-| `ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME` | Логин первого администратора (например, `zitadel-admin`). |
-| `ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD` | Начальный пароль администратора (будет сменён при первом входе). |
-| `ZITADEL_BOOTSTRAP_PAT_EXPIRATION` | Срок действия bootstrap-PAT (ISO-8601, ≈ сейчас + 30 дней): `date -u -d '+30 days' +%Y-%m-%dT00:00:00Z`. Учитывается только при самой первой инициализации Zitadel. |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Учётка `postgres-app` (бизнес-БД synaq). Те же значения — в `apps/.env.apps`. |
+| `CLICKHOUSE_PASSWORD` | Пароль ClickHouse; тот же — в `apps/.env.apps`. |
+| `ZITADEL_MASTERKEY` | Случайная строка **ровно из 32 символов** (`tr -dc A-Za-z0-9 </dev/urandom \| head -c 32`; `make up` проверяет длину и отказывается от образцового ключа из документации Zitadel). Шифрует данные Zitadel — после первой инициализации её нельзя изменить. |
+| `ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME` / `_PASSWORD` | Суперпользователь `postgres-zitadel`; нужен только одноразовому `zitadel-dbinit`. |
+| `ZITADEL_DATABASE_POSTGRES_USER_PASSWORD` | Пароль непривилегированного пользователя `zitadel` (создаётся автоматически). |
+| `ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME` / `_PASSWORD` | Логин и начальный пароль первого администратора (сменится при первом входе). |
+| `ZITADEL_BOOTSTRAP_PAT_EXPIRATION` | Срок bootstrap-PAT (ISO-8601, ≈ сейчас + 30 дней): `date -u -d '+30 days' +%Y-%m-%dT00:00:00Z`. Учитывается только при первой инициализации. |
 
 Необязательные: `ZITADEL_APP_DEVMODE` (по умолчанию `true` — разрешает `http://` redirect URI; для HTTPS — `false`),
-`GATEWAY_PORT` / `ZITADEL_PORT` (по умолчанию `8080` / `8081`; из них же строятся redirect URI, issuer и `ZITADEL_EXTERNALPORT`).
+`GATEWAY_PORT` / `ZITADEL_PORT` (по умолчанию `8080` / `8081`). Параметры трекера в `apps/.env.apps`:
+`CH_BUFFER_SIZE`, `CH_MAX_BUFFERED_BYTES`, `CH_BATCH_SIZE`, `CH_FLUSH_INTERVAL`.
 
-> **Не создавайте `.env` в корне репозитория.** Корневой `.env` имеет приоритет над `infra/.env.infra` при интерполяции
-> `${...}` в compose и молча переопределит `POSTGRES_*`. Поэтому для Zitadel используются отдельные имена
-> `ZITADEL_DATABASE_POSTGRES_ADMIN_*`.
+> **Не создавайте `.env` в корне репозитория.** Корневой `.env` имеет приоритет над `infra/.env.infra` при
+> интерполяции `${...}` в compose и молча переопределит значения.
 
 Корневой `docker-compose.yml` подключает (`include`) `infra/docker-compose.infra.yml`, `apps/docker-compose.apps.yml`
-и `nginx/docker-compose.yml`. Python-сервисы монтируют исходники и работают с `uvicorn --reload`; Go-трекер и дашборд
-требуют `--build`. После пересоздания любого контейнера приложения выполните `docker compose restart gateway`:
-nginx резолвит имена upstream только при старте.
+и `nginx/docker-compose.yml`. Образы synaq, `analytics_api` и дашборда собираются из исходников: после изменения кода —
+`docker compose up -d --build <сервис>`, затем `docker compose restart gateway` (nginx резолвит имена upstream только при старте).
 
-Zitadel стартует в три шага: `zitadel-dbinit` (`zitadel init`, единственный контейнер с учёткой суперпользователя
-PostgreSQL) → `zitadel-setup` (миграции, первый инстанс, bootstrap-PAT) → `zitadel` (`zitadel start`). Затем одноразовый
-`zitadel-init` (`infra/zitadel/bootstrap.sh`) создаёт проект, роли `admin` / `analyst`, OIDC-приложение дашборда и
-сервисный аккаунт `synaq-automation`. Публичная OIDC-конфигурация пишется в `infra/zitadel/public/oidc.json`, секрет
-сервисного аккаунта — в `infra/zitadel/secrets/automation.json` (не коммитится). После успешного bootstrap PAT с правами
-IAM owner (`secrets/bootstrap.pat`) удаляется; повторные запуски без PAT ничего не меняют и завершаются с кодом 0.
-Чтобы позже применить изменённые настройки OIDC-приложения, создайте в консоли Zitadel короткоживущий PAT для
-`zitadel-bootstrap`, сохраните его в `infra/zitadel/secrets/bootstrap.pat` (`chmod 600`) и перезапустите `zitadel-init`.
-
-Интерфейсы:
-- **Дашборд:** http://localhost:8080/dashboard/ (старый адрес `/admin` перенаправляет сюда).
-- **Консоль Zitadel:** http://localhost:8081/ui/console (пользователи, роли, приложения).
-
-> **Обновление существующего тома ClickHouse.** Скрипты из `infra/clickhouse/init/` выполняются только на пустом томе.
-> Если том создан до исправления `02-kafka.sql` (раньше Kafka-таблица объявлялась с `DEFAULT` и ClickHouse 24.8 её
-> не создавал), выполните `make ch-reset` — он пересоздаёт `tracking_events_queue` и `tracking_events_mv` из `02-kafka.sql`.
-> Альтернатива — `docker compose down -v` (удалит все тома).
+Zitadel стартует в три шага: `zitadel-dbinit` → `zitadel-setup` (первый инстанс, bootstrap-PAT) → `zitadel`. Затем
+одноразовый `zitadel-init` (`infra/zitadel/bootstrap.sh`) создаёт проект, роли `admin` / `analyst`, OIDC-приложение
+дашборда и сервисный аккаунт `synaq-automation`. Публичная OIDC-конфигурация — `infra/zitadel/public/oidc.json`,
+секрет сервисного аккаунта — `infra/zitadel/secrets/automation.json` (не коммитится). После успешного bootstrap PAT с
+правами IAM owner удаляется; повторные запуски без PAT ничего не меняют. Консоль Zitadel: http://localhost:8081/ui/console.
 
 ---
 
 ## Аутентификация и роли
-
-Управление экспериментами и статистика защищены JWT (OIDC, IdP — Zitadel). Выдача вариантов (`/api/v1/variants/...`)
-и трекинг (`/api/v1/tracker/events`) публичны.
 
 | Роль | Права |
 |------|-------|
 | `admin` | Создание, изменение (`PATCH`), остановка и удаление экспериментов; список и статистика. |
 | `analyst` | Только чтение: список экспериментов и статистика. |
 
-Первый администратор и сервисный аккаунт `synaq-automation` получают роль `admin` автоматически. Выдать роль `analyst`:
-консоль Zitadel → **Projects** → `synaqcore` → **Authorizations** → **New**. Роль появится в токене после повторного входа.
+Первый администратор и `synaq-automation` получают `admin` автоматически. Выдать `analyst`: консоль Zitadel →
+**Projects** → `synaqcore` → **Authorizations** → **New** (роль появится в токене после повторного входа).
 
-Токен для API и скриптов (OAuth2 `client_credentials`, нужны `curl` и `jq`):
 ```bash
 eval "$(make -s token)"            # или: export SYNAQ_TOKEN="$(scripts/get_token.sh)"
 curl -H "Authorization: Bearer $SYNAQ_TOKEN" http://localhost:8080/api/v1/experiments/
@@ -356,12 +323,9 @@ curl "http://localhost:8080/api/v1/variants/landing_button_test?user_id=usr_777"
 ```json
 {"experiment_name": "landing_button_test", "user_id": "usr_777", "variant": "B"}
 ```
-Для неизвестного или выключенного эксперимента возвращается `"variant": "control"`. Конфиг рендеринга вариантов —
-`GET /api/v1/variants/config/{name}`.
-
-Другие публичные эндпоинты: `POST /api/v1/variants/batch` (`{"user_id": "...", "experiments": [...]}`, до 50 экспериментов),
-`GET /api/v1/variants/active` (активные эксперименты и имена вариантов), `GET /api/v1/variants/eval-configs`
-(веса активных экспериментов для локального расчёта в серверных SDK).
+Для неизвестного или выключенного эксперимента — `"variant": "control"`. Ещё: `POST /api/v1/variants/batch`
+(`{"user_id": "...", "experiments": [...]}`, до 50), `GET /api/v1/variants/active`, `GET /api/v1/variants/config/{name}`,
+`GET /api/v1/variants/eval-configs` (веса активных экспериментов для серверных SDK).
 
 ### Создание эксперимента (`admin`)
 ```bash
@@ -370,103 +334,59 @@ curl -X POST "http://localhost:8080/api/v1/experiments/" \
   -H "Content-Type: application/json" \
   -d '{"name": "landing_button_test", "variants": {"A": 50, "B": 50}}'
 ```
-Частичное обновление — `PATCH /api/v1/experiments/{name}`. Менять варианты у активного эксперимента нельзя (`409 Conflict`,
-иначе поменялось бы распределение пользователей): сначала остановите его (`{"is_active": false}`).
+Веса — целые 1..1 000 000. `PATCH /api/v1/experiments/{name}` — частичное обновление; менять варианты активного
+эксперимента нельзя (`409`): сначала остановите его (`{"is_active": false}`).
 
 ### Отправка события (публично)
 ```bash
 curl -X POST "http://localhost:8080/api/v1/tracker/events" \
   -H "Content-Type: application/json" \
-  -d '{
-    "event_id": "evt_01",
-    "user_id": "usr_777",
-    "event_name": "cta_click",
-    "experiment_name": "landing_button_test",
-    "variant": "B",
-    "event_data": "{\"screen\":\"main\"}"
-  }'
+  -d '{"event_id": "evt_01", "user_id": "usr_777", "event_name": "cta_click",
+       "experiment_name": "landing_button_test", "variant": "B", "event_data": "{\"screen\":\"main\"}"}'
 ```
 
 | Код | Когда |
 |---|---|
-| `200 {"status":"OK"}` | событие принято в очередь продюсера |
-| `400` | невалидный JSON, нет `user_id` / `event_name`, поле длиннее 256 символов, `event_data` > 16 КБ, `timestamp` вне окна [сейчас − 7 дней, сейчас + 5 минут] |
-| `413` | тело запроса больше 64 КБ |
+| `200 {"status":"OK"}` | событие принято в буфер |
+| `400` | невалидный JSON, нет `user_id` / `event_name`, поле длиннее 256 символов, `event_data` > 16 КБ, `timestamp` вне окна |
+| `413` | тело больше 64 КБ |
 | `429` | превышен лимит nginx (200 r/s с IP, burst 400) |
-| `503` + `Retry-After: 1` | очередь продюсера переполнена или брокер недоступен — повторите позже |
+| `503` + `Retry-After: 1` | буфер переполнен — повторите позже с тем же `event_id` |
 
-`timestamp` — миллисекунды Unix, необязателен (по умолчанию серверное время). `event_id` — ключ дедупликации; если его нет,
-трекер сгенерирует свой, но для ретраев с бэкенда лучше передавать стабильный ключ.
-
-### Статистика (`admin` или `analyst`, сервис `analytics_api`)
+### Статистика (`admin` или `analyst`)
 ```bash
 curl "http://localhost:8080/api/v1/stats/landing_button_test?goal_event=cta_click&method=both" \
   -H "Authorization: Bearer $SYNAQ_TOKEN"
-curl "http://localhost:8080/api/v1/stats/landing_button_test/basic" -H "Authorization: Bearer $SYNAQ_TOKEN"
 ```
-Параметры полного отчёта: `method` (`frequentist` | `bayesian` | `both`), `goal_event` (по умолчанию `purchase`),
-`segments` (по умолчанию `platform,user_tenure`), `hide`, `monthly_traffic`.
+Параметры: `method` (`frequentist` | `bayesian` | `both`), `goal_event` (по умолчанию `purchase`), `segments`, `hide`,
+`monthly_traffic`; краткий отчёт — `/api/v1/stats/{name}/basic`.
 
 ---
 
 ## Интеграция и SDK
 
-- **[Руководство по интеграции](docs/INTEGRATION_GUIDE.md)** — сетевая изоляция, подключение через корпоративный nginx,
-  клиентские и серверные примеры, M2M-автоматизация.
-- **JavaScript / TypeScript SDK** ([`sdk/README.md`](sdk/README.md)): zero-dependency [`sdk/synaq.js`](sdk/synaq.js) с типами
-  [`sdk/synaq.d.ts`](sdk/synaq.d.ts) и [`sdk/package.json`](sdk/package.json) для сборки пакета `@synaq/client`; кэш вариантов
-  в памяти и `localStorage`, `getVariantsBatch(...)`, буферизация событий, `navigator.sendBeacon` с fallback на
-  `fetch(..., { keepalive: true })`, автогенерация `event_id`. Gateway раздаёт файл по `/sdk/synaq.js`.
+- **[Руководство по интеграции](docs/INTEGRATION_GUIDE.md)** — сетевая изоляция, корпоративный nginx, клиентские и
+  серверные примеры, M2M-автоматизация.
+- **JavaScript / TypeScript SDK** ([`sdk/README.md`](sdk/README.md)): [`sdk/synaq.js`](sdk/synaq.js) без зависимостей,
+  типы [`sdk/synaq.d.ts`](sdk/synaq.d.ts); кэш вариантов, `getVariantsBatch(...)`, буферизация событий, `sendBeacon`,
+  генерация `event_id` на клиенте. Gateway раздаёт файл по `/sdk/synaq.js`.
 - **React:** [`sdk/react.jsx`](sdk/react.jsx) — `<SynaqProvider>` и хук `useVariant`.
 - **Серверные SDK с локальным расчётом:** [`sdk/python`](sdk/python) и [`sdk/go`](sdk/go) — опрашивают
-  `/api/v1/variants/eval-configs` (по умолчанию раз в 30 с) и считают вариант в памяти тем же алгоритмом, что и сервер.
-- **Корпоративный nginx:** [`nginx/company-edge-integration.example.conf`](nginx/company-edge-integration.example.conf) —
-  поддомен или префикс пути, Cloudflare real IP, закрытие `/dashboard/` через VPN / Cloudflare Access.
+  `/api/v1/variants/eval-configs` (раз в 30 с) и считают вариант в памяти тем же алгоритмом.
+- **Корпоративный nginx:** [`nginx/company-edge-integration.example.conf`](nginx/company-edge-integration.example.conf).
 
 ---
 
 ## Аналитика и статистика
 
-```
-                     ClickHouse (агрегаты по вариантам)
-                                  │
-                                  ▼
-                   ┌──────────────────────────────┐
-                   │    StatisticalAnalyzer       │
-                   └──────┬────────────────┬──────┘
-             Частотный    │                │    Байесовский
-          ┌───────────────▼─────┐   ┌──────▼─────────────────────────┐
-          │ Двусторонний z-тест │   │ Монте-Карло: сэмплирование из  │
-          │ для долей, p-value  │   │ Beta-апостериорных (50 000)    │
-          │ Интервалы Уилсона   │   │ P(variant > control)           │
-          │ ДИ разницы и uplift │   │ Expected loss, credible int.   │
-          └───────────────┬─────┘   └──────┬─────────────────────────┘
-                          └───────┬────────┘
-                                  ▼
-          Бизнес-метрики (выручка, ARPU, guardrails, MDE), сегменты, воронка
-                                  │
-                                  ▼
-                   Рекомендации на русском языке
-```
+Движок `apps/analytics_api/src/services/analysis/` (на `math` / `random`, без scipy): двусторонний z-тест для долей,
+интервалы Уилсона, ДИ разницы и uplift; байесовский Монте-Карло по Beta-апостериорным (P(variant > control),
+expected loss); бизнес-метрики (выручка, ARPU, guardrails, MDE), сегменты, воронка; рекомендации на русском.
+Ограничение: сравниваются контроль (`A` или `control`) и **один** другой вариант.
 
-Движок (`apps/analytics_api/src/services/analysis/`) написан на `math` / `random` без scipy. Ограничение: сравниваются
-контроль (`A` или `control`) и **один** другой вариант; для A/B/n нужны попарные сравнения с контролем и поправка на
-множественные проверки (в планах).
-
----
-
-## Схема данных ClickHouse
-
-DDL применяется автоматически на пустом томе из `infra/clickhouse/init/`:
-
-- [`01-tables.sql`](infra/clickhouse/init/01-tables.sql) — таблица `tracking_events` (`ReplacingMergeTree(timestamp)`,
-  `PARTITION BY toYYYYMM(timestamp)`, `ORDER BY (event_name, user_id, event_id, toDate(timestamp))`, колонки
-  `DEFAULT ''` вместо `Nullable`);
-- [`02-kafka.sql`](infra/clickhouse/init/02-kafka.sql) — `tracking_events_queue` (`ENGINE = Kafka`, без `DEFAULT`,
-  `kafka_handle_error_mode = 'stream'`) и `tracking_events_mv` (`WHERE length(_error) = 0`). Нужен только в режиме с Kafka.
-
-Подробнее: [docs/clickhouse-kafka/README.md](docs/clickhouse-kafka/README.md). При изменении формата события синхронно
-меняются Go-хендлер, обе таблицы, MV и SDK.
+Схема ClickHouse — [`infra/clickhouse/init/01-tables.sql`](infra/clickhouse/init/01-tables.sql): `tracking_events`
+(`ReplacingMergeTree(timestamp)`, `PARTITION BY toYYYYMM(timestamp)`, колонки `DEFAULT ''` вместо `Nullable`).
+При изменении формата события синхронно меняются трекер synaq, таблица и SDK.
 
 ---
 
@@ -475,31 +395,23 @@ DDL применяется автоматически на пустом томе
 ```
 synaqcore/
 ├── apps/
-│   ├── experiment_api/          # FastAPI: CRUD экспериментов и выдача вариантов
-│   │   └── src/
-│   │       ├── api/v1/          # admin.py (эксперименты), client.py (варианты)
-│   │       ├── core/            # конфигурация, БД, JWT-аутентификация
-│   │       └── services/        # allocation.py, cache.py, репозиторий
+│   ├── synaq/                   # Go-монолит: варианты, admin API, трекер
+│   │   ├── cmd/synaq/           # точка входа
+│   │   └── internal/            # allocation, api (variants, admin, validate), auth, configcache,
+│   │                            # store (Postgres, миграции, sqlc), sink/clickhouse, track
 │   ├── analytics_api/           # FastAPI: /api/v1/stats, ClickHouse-агрегатор, движок статистики
 │   ├── dashboard/               # SPA (React + Vite + Tailwind)
-│   ├── track_api_go/            # Go-трекер событий
-│   │   ├── cmd/api/main.go      # точка входа, выбор приёмника (EVENT_SINK)
-│   │   ├── internal/track/      # HTTP-хендлер и валидация
-│   │   ├── internal/kafka/      # продюсер franz-go с ограниченной очередью
-│   │   └── internal/sink/       # интерфейс приёмника и ClickHouse-приёмник (lite)
-│   ├── docker-compose.apps.yml
-│   └── .env.apps.example
+│   └── docker-compose.apps.yml
 ├── infra/
-│   ├── clickhouse/init/         # 01-tables.sql, 02-kafka.sql
+│   ├── clickhouse/              # init/01-tables.sql, low-memory конфиг
 │   ├── zitadel/                 # bootstrap.sh (zitadel-init), public/, secrets/
-│   ├── docker-compose.infra.yml # Redpanda, ClickHouse, Redis, PostgreSQL, Zitadel
-│   └── .env.infra.example
+│   └── docker-compose.infra.yml # postgres-app, postgres-zitadel, Zitadel, ClickHouse
 ├── nginx/                       # nginx.conf шлюза, пример для корпоративного edge
 ├── scripts/get_token.sh         # JWT сервисного аккаунта
 ├── sdk/                         # JS/TS SDK, React, sdk/python, sdk/go, demo_simulator.py
-├── tests/                       # pytest-тесты и нагрузочный профиль (tests/load)
+├── tests/                       # pytest (analytics, SDK), contract/ (smoke synaq), load/ (Locust)
 ├── docs/                        # архитектура, ADR, планы
-├── Makefile                     # up / down / token / demo / ch-reset / test / lint / go-test
+├── Makefile                     # up / down / token / demo / test / lint / go-test / smoke / zitadel-reset
 └── docker-compose.yml           # include всех compose-файлов
 ```
 
@@ -508,44 +420,45 @@ synaqcore/
 ## Тесты и CI
 
 ```bash
-make test      # pytest: 402 теста (allocation, auth, схемы, Redis-fallback, SDK, аналитика, роутер /stats)
+make go-test   # go test -race: apps/synaq (распределение, API, auth, кэш, ClickHouse-приёмник) и sdk/go
+make smoke     # 59 HTTP-тестов synaq на отдельном docker-стенде (Postgres + ClickHouse + JWKS), сам сносит стенд
+make test      # pytest: analytics_api (движок, агрегатор, auth, роутер /stats) и Python SDK против golden-векторов
 make lint      # ruff check apps tests sdk
-make go-test   # go test для apps/track_api_go (хендлер, Kafka-продюсер, ClickHouse-приёмник) и sdk/go (golden-векторы)
 ```
 
 `./venv/bin` скрипты имеют сломанный shebang, поэтому `make` вызывает инструменты через `python -m`.
 
-GitHub Actions (`.github/workflows/ci.yml`): ruff + pytest, gofmt + go vet + go test для обоих Go-модулей (и go build трекера),
-typecheck и сборка дашборда, сборка Docker-образов; actions закреплены по SHA, обновления — Dependabot.
+GitHub Actions (`.github/workflows/ci.yml`): ruff + pytest; gofmt + go vet + go test + go build для `apps/synaq` и
+`sdk/go`; smoke-набор; typecheck и сборка дашборда; сборка Docker-образов. Actions закреплены по SHA, обновления — Dependabot.
 
-Нагрузочный тест (Locust):
-```bash
-eval "$(make -s token)"   # чтобы locust сам создал тестовый эксперимент
-locust -f tests/load/locustfile.py --host http://localhost:8080
-```
-> С одной машины упрётесь в `limit_req` nginx (`/api/v1/variants/` — 50 r/s с IP, трекер — 200 r/s): ответы `429`.
-> Учитывайте это или временно ослабьте лимиты в `nginx/nginx.conf`.
+Нагрузочный тест: `eval "$(make -s token)" && locust -f tests/load/locustfile.py --host http://localhost:8080`
+(с одной машины упрётесь в `limit_req` nginx — ответы `429`).
 
 ---
 
-## Ограничения и планы
+## Дорожная карта
 
-- Нет TLS: gateway и Zitadel работают по HTTP (`ZITADEL_EXTERNALSECURE=false`). Для продакшена нужны HTTPS и внешний домен.
-- Статистика сравнивает контроль с одним вариантом; A/B/n с поправкой на множественные проверки — в планах.
-- `src/core/auth.py` продублирован в `experiment_api` и `analytics_api`.
-- Нет Prometheus-метрик и публичного Swagger через gateway.
-- Lite-вариант (см. [main vs lite](#main-vs-lite)) — в разработке.
+- **Дисковый spool** для буфера трекера — события переживают рестарт и долгую недоступность ClickHouse.
+- **Реплики synaq** за gateway.
+- **`/metrics` + профиль Grafana** (RPS, latency, `503`, отброшенные батчи, возраст снимка конфигов).
+- **Caddy с auto-TLS** и Zitadel на `auth.<domain>`.
+- **Установка одной командой** (генерация секретов, проверка ресурсов).
+- **Бэкап и восстановление** Postgres и ClickHouse.
+- **Профиль `scale`** с Kafka/Redpanda как долговременным буфером — в той же кодовой базе.
+- A/B/n-анализ с поправкой на множественные проверки.
 
-Подробно: [docs/plan.md](docs/plan.md), текущий статус — [docs/SESSION_CONTEXT.md](docs/SESSION_CONTEXT.md).
+Python-версия (FastAPI `experiment_api` + Redis, трекер → Redpanda → ClickHouse Kafka engine) остаётся доступной по
+тегу `v1-python`. Подробно: [docs/plan.md](docs/plan.md), статус — [docs/SESSION_CONTEXT.md](docs/SESSION_CONTEXT.md).
 
 ---
 
 ## Документация
 
-- [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md) — архитектура
+- [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md) — архитектура lite
+- [docs/adr/0002-lite-go-monolith.md](docs/adr/0002-lite-go-monolith.md) — ADR: Go-монолит на одном VPS
+- [docs/adr/0001-kafka-vs-rabbitmq.md](docs/adr/0001-kafka-vs-rabbitmq.md) — ADR: Kafka (Python-версия и профиль `scale`)
+- [docs/clickhouse-kafka/README.md](docs/clickhouse-kafka/README.md) — приём событий в ClickHouse
 - [docs/INTEGRATION_GUIDE.md](docs/INTEGRATION_GUIDE.md) — интеграция
-- [docs/clickhouse-kafka/README.md](docs/clickhouse-kafka/README.md) — пайплайн Kafka → ClickHouse
-- [docs/adr/0001-kafka-vs-rabbitmq.md](docs/adr/0001-kafka-vs-rabbitmq.md) — ADR: выбор Kafka (Redpanda)
 - [docs/plan.md](docs/plan.md) — дорожная карта
 
 ## Лицензия
