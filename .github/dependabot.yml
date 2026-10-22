@@ -17,15 +17,11 @@ updates:
     schedule:
       interval: weekly
   - package-ecosystem: gomod
-    directory: /apps/track_api_go
+    directory: /apps/synaq
     schedule:
       interval: weekly
 
   # Python (requirements.txt)
-  - package-ecosystem: pip
-    directory: /apps/experiment_api
-    schedule:
-      interval: weekly
   - package-ecosystem: pip
     directory: /apps/analytics_api
     schedule:
@@ -33,15 +29,11 @@ updates:
 
   # Базовые образы Dockerfile
   - package-ecosystem: docker
-    directory: /apps/experiment_api
-    schedule:
-      interval: weekly
-  - package-ecosystem: docker
     directory: /apps/analytics_api
     schedule:
       interval: weekly
   - package-ecosystem: docker
-    directory: /apps/track_api_go
+    directory: /apps/synaq
     schedule:
       interval: weekly
   - package-ecosystem: docker

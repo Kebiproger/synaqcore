@@ -1,7 +1,9 @@
+# Lite-стек (1 VPS, 2 vCPU / 4 GB): без Redis и Redpanda/Kafka.
 # Общие переменные Zitadel (YAML-якоря). Значения ${...} интерполируются
 # из infra/.env.infra (см. include в корневом docker-compose.yml).
 x-zitadel-db-env: &zitadel-db-env
-  ZITADEL_DATABASE_POSTGRES_HOST: postgres
+  # У Zitadel собственный Postgres (postgres-zitadel), бизнес-БД synaq — postgres-app.
+  ZITADEL_DATABASE_POSTGRES_HOST: postgres-zitadel
   ZITADEL_DATABASE_POSTGRES_PORT: 5432
   ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
   ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
@@ -20,75 +22,76 @@ x-zitadel-runtime-env: &zitadel-runtime-env
   ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: "false"
 
 services:
-  redis:
-    container_name: redis
-    image: redis:7.2-alpine
-    volumes:
-      - redis_data:/data
-    networks:
-      - ab_testing_net
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
-  redpanda:
-    image: redpandadata/redpanda:v26.2.4
-    command:
-      - redpanda start
-      - --smp 1
-      - --memory 1G
-      - --set auto_create_topics_enabled=true 
-      - --overprovisioned
-      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
-      - --advertise-kafka-addr internal://redpanda:9092,external://${KAFKA_EXTERNAL_HOST:-127.0.0.1}:${KAFKA_EXTERNAL_PORT:-9092}
-    # ports:
-    #  - "127.0.0.1:${KAFKA_EXTERNAL_PORT}:19092" 
-    volumes:
-     - redpanda_data:/var/lib/redpanda/data
-    networks:
-     - ab_testing_net 
-    healthcheck:                                           # Healthy: true в оригинале, но команда выводит с 20 пробелами и поэтому поставили регулярку
-      test: ["CMD-SHELL", "rpk cluster health | grep -E -q 'Healthy:[[:space:]]+true' || exit 1"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
-  redpanda-init:
-    image: redpandadata/redpanda:v26.2.4
-    container_name: redpanda-init
-    depends_on:
-      redpanda:
-        condition: service_healthy
-    environment:
-      - RPK_BROKERS=redpanda:9092
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-     - "rpk topic create tracking_events --partitions 4 --if-not-exists"
-    networks:
-     - ab_testing_net 
-
-  postgres:
-    container_name: postgres
+  # ----------------------------------------------------------------------------
+  # Бизнес-БД synaq (эксперименты). Учётка — POSTGRES_* из infra/.env.infra;
+  # те же значения должны стоять в apps/.env.apps (POSTGRES_USER/_PASSWORD/_DB).
+  # Передаём только нужные переменные, а не весь .env.infra (там секреты Zitadel).
+  # ----------------------------------------------------------------------------
+  postgres-app:
+    container_name: postgres-app
     image: postgres:16-alpine
-    env_file: .env.infra
+    command:
+      - postgres
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - max_connections=30
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?задайте в infra/.env.infra}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте в infra/.env.infra}
+      POSTGRES_DB: ${POSTGRES_DB:?задайте в infra/.env.infra}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_app_data:/var/lib/postgresql/data
     networks:
       - ab_testing_net
+    mem_limit: 256m
+    # Docker по умолчанию даёт 64 МБ /dev/shm; для shared_buffers=64MB этого мало
+    shm_size: 128m
+    stop_grace_period: 30s
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 3s
       retries: 5
+    restart: unless-stopped
+
+  # ----------------------------------------------------------------------------
+  # Отдельный Postgres только для Zitadel (изоляция от бизнес-БД).
+  # Суперпользователь = ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME/_PASSWORD:
+  # zitadel-dbinit под ним создаёт БД `zitadel` и непривилегированного пользователя.
+  # ----------------------------------------------------------------------------
+  postgres-zitadel:
+    container_name: postgres-zitadel
+    image: postgres:16-alpine
+    command:
+      - postgres
+      - -c
+      - shared_buffers=32MB
+      - -c
+      - max_connections=50
+    environment:
+      POSTGRES_USER: ${ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME:?задайте в infra/.env.infra}
+      POSTGRES_PASSWORD: ${ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD:?задайте в infra/.env.infra}
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres_zitadel_data:/var/lib/postgresql/data
+    networks:
+      - ab_testing_net
+    mem_limit: 256m
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
 
   # ----------------------------------------------------------------------------
   # Zitadel — IdP (OIDC/OAuth2). Наружу публикуется только через gateway
   # (127.0.0.1:${ZITADEL_PORT:-8081}). Жизненный цикл разделён на три сервиса,
   # чтобы учётка суперпользователя postgres не жила в долгоживущем контейнере:
   #   zitadel-dbinit  `init`  — создаёт БД `zitadel` и пользователя `zitadel`
-  #                    (admin-подключение = суперпользователь postgres), одноразовый;
+  #                    (admin-подключение = суперпользователь postgres-zitadel), одноразовый;
   #   zitadel-setup   `setup` — миграции, первый инстанс, bootstrap-PAT; одноразовый;
   #   zitadel         `start` — рантайм, только непривилегированный пользователь БД.
   # Все три шага идемпотентны и прогоняются при каждом `docker compose up`.
@@ -105,7 +108,7 @@ services:
     command: init
     environment:
       <<: *zitadel-db-env
-      # Admin-подключение = суперпользователь postgres (те же значения, что POSTGRES_USER/POSTGRES_PASSWORD).
+      # Admin-подключение = суперпользователь postgres-zitadel (POSTGRES_USER/_PASSWORD выше).
       # Нужно только здесь; setup и start его не получают.
       ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: ${ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME:?задайте в infra/.env.infra}
       ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: ${ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD:?задайте в infra/.env.infra}
@@ -113,8 +116,9 @@ services:
       ZITADEL_DATABASE_POSTGRES_ADMIN_EXISTINGDATABASE: postgres
     networks:
       - ab_testing_net
+    mem_limit: 256m
     depends_on:
-      postgres:
+      postgres-zitadel:
         condition: service_healthy
     restart: "no"
 
@@ -143,6 +147,8 @@ services:
       - ./zitadel/secrets:/zitadel-secrets
     networks:
       - ab_testing_net
+    # Одноразовый, работает до старта zitadel — пики памяти не пересекаются
+    mem_limit: 512m
     depends_on:
       zitadel-dbinit:
         condition: service_completed_successfully
@@ -156,8 +162,11 @@ services:
     # Только нужные переменные (не весь .env.infra), без admin-учётки БД и first-instance.
     environment:
       <<: [*zitadel-db-env, *zitadel-runtime-env]
+      # Go runtime: мягкий лимит кучи ниже mem_limit, чтобы GC срабатывал до OOM-kill
+      GOMEMLIMIT: 400MiB
     networks:
       - ab_testing_net
+    mem_limit: 512m
     depends_on:
       zitadel-setup:
         condition: service_completed_successfully
@@ -193,36 +202,55 @@ services:
     command: ["/bin/sh", "/bootstrap.sh"]
     networks:
       - ab_testing_net
+    mem_limit: 64m
     depends_on:
       zitadel:
         condition: service_healthy
 
-  # Init-скрипты: ./clickhouse/init (выполняются по алфавиту при первом старте на пустом томе):
-  #   01-tables.sql - таблица tracking_events (нужна всегда);
-  #   02-kafka.sql  - Kafka-очередь + MV (только full-режим с Redpanda).
-  # Lite-режим (Go пишет в ClickHouse напрямую, без Redpanda) монтирует только 01,
-  # одним файлом вместо каталога:
-  #   - ./clickhouse/init/01-tables.sql:/docker-entrypoint-initdb.d/01-tables.sql:ro
+  # ----------------------------------------------------------------------------
+  # ClickHouse. Lite: synaq пишет события напрямую (HTTP INSERT), Kafka нет.
+  # Init-скрипт монтируется одним файлом (выполняется только на пустом томе):
+  #   01-tables.sql - таблица tracking_events.
+  # Настройки под малый объём RAM — отдельными файлами, а не каталогами:
+  # entrypoint образа сам пишет users.d/default-user.xml (CLICKHOUSE_USER/_PASSWORD).
+  #   config.d/low-memory.xml - лимит памяти сервера, кэши, фоновый пул, системные логи;
+  #   users.d/low-memory.xml  - профиль default: max_threads, лимиты памяти запроса.
+  # ----------------------------------------------------------------------------
   clickhouse:
     container_name: clickhouse
     image: clickhouse/clickhouse-server:24.8
-    env_file: .env.infra
+    # Только переменные ClickHouse, а не весь .env.infra (там секреты Zitadel/Postgres)
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?задайте в infra/.env.infra}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-}
     volumes:
       - clickhouse_data:/var/lib/clickhouse
-      - ./clickhouse/init:/docker-entrypoint-initdb.d
+      - ./clickhouse/init/01-tables.sql:/docker-entrypoint-initdb.d/01-tables.sql:ro
+      - ./clickhouse/config.d/low-memory.xml:/etc/clickhouse-server/config.d/low-memory.xml:ro
+      - ./clickhouse/users.d/low-memory.xml:/etc/clickhouse-server/users.d/low-memory.xml:ro
     networks:
       - ab_testing_net
+    # max_server_memory_usage_to_ram_ratio=0.75 считается от лимита cgroup: ~1152 МиБ
+    mem_limit: 1536m
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    stop_grace_period: 30s
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
       interval: 5s
       timeout: 3s
       retries: 5
+    restart: unless-stopped
 
 volumes:
-  redis_data:
   clickhouse_data:
-  postgres_data:
-  redpanda_data:
+  # Раздельные тома: бизнес-БД и БД Zitadel. Старый общий том postgres_data
+  # (full-стек) больше не используется; данные из него переносятся вручную.
+  postgres_app_data:
+  postgres_zitadel_data:
 
 networks:
   ab_testing_net:

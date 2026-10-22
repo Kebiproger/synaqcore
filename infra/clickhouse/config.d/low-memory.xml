@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<!--
+  Lite-профиль сервера ClickHouse для VPS 2 vCPU / 4 GB (контейнер mem_limit 1536m).
+  ClickHouse 24.8 берёт объём RAM из лимита cgroup, поэтому 0.75 = ~1152 МиБ на сервер.
+-->
+<clickhouse>
+    <!-- Потолок памяти всего сервера: при превышении запросы получают MEMORY_LIMIT_EXCEEDED, а не OOM-kill -->
+    <max_server_memory_usage_to_ram_ratio>0.75</max_server_memory_usage_to_ram_ratio>
+
+    <!-- Кэши засечек: по умолчанию гигабайты, для одной таблицы событий хватает меньшего -->
+    <mark_cache_size>268435456</mark_cache_size>               <!-- 256 МиБ -->
+    <index_mark_cache_size>67108864</index_mark_cache_size>     <!-- 64 МиБ -->
+
+    <!-- Фоновые слияния: 2 vCPU, по умолчанию 16 потоков -->
+    <background_pool_size>4</background_pool_size>
+    <!--
+      При уменьшенном пуле сервер не стартует (BAD_ARGUMENTS в sanityCheck), если пороги
+      свободных слотов MergeTree больше background_pool_size * background_merges_mutations_concurrency_ratio
+      (4 * 2 = 8). Дефолты 20/25 опускаем ниже этого произведения.
+    -->
+    <merge_tree>
+        <number_of_free_entries_in_pool_to_execute_mutation>4</number_of_free_entries_in_pool_to_execute_mutation>
+        <number_of_free_entries_in_pool_to_execute_optimize_entire_partition>4</number_of_free_entries_in_pool_to_execute_optimize_entire_partition>
+        <number_of_free_entries_in_pool_to_lower_max_size_of_merge>4</number_of_free_entries_in_pool_to_lower_max_size_of_merge>
+    </merge_tree>
+
+    <max_concurrent_queries>50</max_concurrent_queries>
+
+    <!-- Системные логи-таблицы: пишут постоянно, едят RAM/диск и CPU на слияния -->
+    <trace_log remove="1"/>
+    <metric_log remove="1"/>
+    <asynchronous_metric_log remove="1"/>
+    <query_thread_log remove="1"/>
+    <processors_profile_log remove="1"/>
+    <part_log remove="1"/>
+    <text_log remove="1"/>
+
+    <!-- query_log оставляем для отладки медленных запросов, но храним 7 дней -->
+    <query_log replace="1">
+        <database>system</database>
+        <table>query_log</table>
+        <engine>ENGINE = MergeTree PARTITION BY event_date ORDER BY (event_date, event_time) TTL event_date + INTERVAL 7 DAY DELETE</engine>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+    </query_log>
+</clickhouse>

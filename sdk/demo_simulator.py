@@ -13,7 +13,7 @@ SynaqCore Demo Simulator — сквозная демонстрация A/B-те�
      для каждого пользователя с ограничением частоты и повтором при 429.
   4. Отправляет события воронки (page_view → add_to_cart → checkout_start →
      purchase) в /api/v1/tracker/events с уникальными event_id, конкурентно.
-  5. Ждёт, пока события дойдут до ClickHouse (Kafka → MV, асинхронно), и
+  5. Ждёт, пока события дойдут до ClickHouse (буфер synaq → async INSERT, асинхронно), и
      печатает отчёт /api/v1/stats/<experiment>: конверсии, uplift, p-value,
      вероятность превосходства, рекомендации.
 
@@ -558,7 +558,7 @@ def _total_users(stats: Optional[dict]) -> int:
 
 async def wait_for_stats(client: "httpx.AsyncClient", args: argparse.Namespace,
                          auth: dict[str, str], baseline: Optional[int]) -> Optional[dict]:
-    """Ждать, пока ClickHouse догонит Kafka (асинхронная загрузка).
+    """Ждать, пока события дойдут до ClickHouse (асинхронная загрузка).
 
     baseline=None (объём старых данных неизвестен): ждём хотя бы args.users
     пользователей и, чтобы не принять старые данные за новые, ещё и того, что
@@ -711,8 +711,8 @@ async def run(args: argparse.Namespace, token: str) -> int:
         stats = await wait_for_stats(client, args, auth, baseline)
 
     if stats is None:
-        print("\nДанные в /stats так и не появились. Проверьте Redpanda/ClickHouse: "
-              "docker compose logs clickhouse track_api")
+        print("\nДанные в /stats так и не появились. Проверьте synaq/ClickHouse: "
+              "docker compose logs clickhouse synaq")
         return 1
     if baseline != 0:
         print("\nВнимание: отчёт может включать данные прошлых запусков; "

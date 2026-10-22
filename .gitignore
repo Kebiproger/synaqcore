@@ -19,9 +19,8 @@ __pycache__/
 htmlcov/
 
 # Go
-apps/track_api_go/bin/
-apps/track_api_go/track_api
-apps/track_api_go/.docs/
+# бинарник от `go build ./cmd/synaq` в apps/synaq
+apps/synaq/synaq
 
 # IDE & OS
 .idea/

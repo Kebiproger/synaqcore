@@ -102,8 +102,8 @@ class SynaqServerClient:
         if not variants or not isinstance(variants, dict):
             return self.fallback_variant
 
-        # Алгоритм обязан совпадать с get_user_variant() в experiment_api
-        # (apps/experiment_api/src/services/allocation.py) и с Go SDK.
+        # Алгоритм обязан совпадать с сервером (apps/synaq/internal/allocation,
+        # golden-векторы в testdata/golden.json) и с Go SDK.
         if any(w <= 0 for w in variants.values()):
             return self.fallback_variant
         total_weight = sum(variants.values())

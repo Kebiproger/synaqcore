@@ -12,18 +12,40 @@ PYTHON  := $(shell [ -x $(VENV_PY) ] && echo $(VENV_PY) || echo python3)
 DEMO_ARGS ?=
 
 .DEFAULT_GOAL := help
-.PHONY: help up down token demo test lint go-test ch-reset
+.PHONY: help up down token demo test lint go-test smoke zitadel-reset check-masterkey
 
 help: ## Показать список команд
 	@echo "Использование: make <цель>"
 	@echo
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-10s %s\n", $$1, $$2}'
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-14s %s\n", $$1, $$2}'
 	@echo
 	@echo "Пример: eval \"\$$(make -s token)\" && make demo DEMO_ARGS=\"--users 1000 --seed 42\""
 
-up: ## Поднять весь стек (docker compose up -d --build)
+up: check-masterkey ## Поднять весь стек (docker compose up -d --build)
 	docker compose up -d --build
+
+# Мастер-ключ Zitadel нельзя сменить после первой инициализации, поэтому не даём
+# стартовать с образцовым ключом из документации или ключом неверной длины.
+# Сам ключ никогда не печатается: grep -q и подсчёт длины в подоболочке.
+ENV_INFRA := infra/.env.infra
+SAMPLE_MASTERKEY := MasterkeyNeedsToHave32Characters
+
+check-masterkey: ## Проверить ZITADEL_MASTERKEY в infra/.env.infra (не образец, ровно 32 символа)
+	@if [ ! -f $(ENV_INFRA) ]; then \
+		echo "Нет $(ENV_INFRA): cp infra/.env.infra.example $(ENV_INFRA) и заполните" >&2; exit 1; \
+	fi
+	@if grep -q '$(SAMPLE_MASTERKEY)' $(ENV_INFRA); then \
+		echo "ZITADEL_MASTERKEY в $(ENV_INFRA) — образцовый ключ из документации." >&2; \
+		echo "Сгенерируйте свой: tr -dc A-Za-z0-9 </dev/urandom | head -c 32" >&2; exit 1; \
+	fi
+	@status=$$(sed -n 's/^[[:space:]]*ZITADEL_MASTERKEY=//p' $(ENV_INFRA) | tail -n 1 | tr -d '\r' | \
+		sed -e 's/^"\(.*\)"$$/\1/' -e "s/^'\(.*\)'$$/\1/" | \
+		{ IFS= read -r key; [ $${#key} -eq 32 ] && echo OK || echo FAIL; }); \
+	if [ "$$status" != OK ]; then \
+		echo "ZITADEL_MASTERKEY в $(ENV_INFRA) должен быть ровно 32 символа." >&2; \
+		echo "Сгенерируйте: tr -dc A-Za-z0-9 </dev/urandom | head -c 32" >&2; exit 1; \
+	fi
 
 down: ## Остановить стек (docker compose down)
 	docker compose down
@@ -53,16 +75,27 @@ test: ## Юнит-тесты (pytest)
 lint: ## Линтер (ruff)
 	$(PYTHON) -m ruff check apps tests sdk
 
-go-test: ## Тесты Go (трекер и sdk/go)
-	cd apps/track_api_go && go test -race ./...
+go-test: ## Тесты Go (сервис synaq и sdk/go)
+	cd apps/synaq && go test -race ./...
 	cd sdk/go && go test -race ./...
 
-# Клиент ClickHouse внутри контейнера; логин и пароль берутся из окружения контейнера
-# (infra/.env.infra), раскрываются его shell и не попадают в команду на хосте.
-CH_CLIENT := docker compose exec -T clickhouse sh -c 'exec clickhouse-client --user "$${CLICKHOUSE_USER:-default}" --password "$${CLICKHOUSE_PASSWORD:-}" --multiquery'
+smoke: ## Smoke-тесты HTTP-API synaq в отдельном docker-стенде (tests/contract/run.sh)
+	PYTHON=$(PYTHON) tests/contract/run.sh -q
 
-ch-reset: ## Пересоздать Kafka-очередь и MV ClickHouse (данные tracking_events не трогаются)
-	@# Сначала MV (читает из очереди), затем очередь. Таблицу tracking_events не удаляем:
-	@# MV пишет в неё через TO, и DROP VIEW целевую таблицу не затрагивает.
-	echo "DROP VIEW IF EXISTS tracking_events_mv; DROP TABLE IF EXISTS tracking_events_queue;" | $(CH_CLIENT)
-	$(CH_CLIENT) < infra/clickhouse/init/02-kafka.sql
+# Lite держит Zitadel в отдельном томе postgres-zitadel: после переезда со старого
+# checkout (Python-версия, тег v1-python) Zitadel создаёт новый инстанс (новый
+# project_id), а старые oidc.json / automation.json указывают на прежний.
+# Запускать при ОСТАНОВЛЕННОМ стеке и до первого `make up` на новых томах: свежий
+# bootstrap.pat пишет только первый setup, после удаления он не появится снова.
+# Тома не трогаем — только подсказка.
+zitadel-reset: ## Удалить сгенерированные OIDC-файлы Zitadel (public/*.json, secrets/*), с подтверждением
+	@printf "Удалить infra/zitadel/public/*.json и содержимое infra/zitadel/secrets/ (кроме .gitkeep)? [y/N] "; \
+	read ans; \
+	case "$$ans" in \
+		y|Y|yes|YES) ;; \
+		*) echo "Отменено"; exit 0 ;; \
+	esac; \
+	rm -f infra/zitadel/public/*.json; \
+	find infra/zitadel/secrets -mindepth 1 ! -name .gitkeep -exec rm -rf {} +; \
+	echo "Готово. Если нужен полностью чистый Zitadel (новый инстанс), остановите стек"; \
+	echo "и удалите тома вручную: docker compose down -v  (УДАЛИТ ВСЕ ДАННЫЕ стека), затем make up"

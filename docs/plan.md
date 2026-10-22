@@ -2,6 +2,10 @@
 
 **Модель продукта:** Self-Hosted Open-Source (стартап клонирует репозиторий и запускает изолированно у себя через `docker compose up -d`).
 
+> **Историческая пометка.** Приоритеты 1–8 выполнялись на Python-версии (тег `v1-python`, история `main`). Упомянутые
+> в них `apps/experiment_api`, `apps/track_api_go`, Redis и `02-kafka.sql` в ветке `lite` удалены; их функции
+> перешли в Go-монолит `apps/synaq` (приоритет 9, [ADR 0002](adr/0002-lite-go-monolith.md)).
+
 ---
 
 ## Матрица приоритетов и зон ответственности
@@ -16,7 +20,8 @@
 | **ПРИОРИТЕТ 6 (P1)** | **Профессиональный Client-Side SDK и DX (почти завершён)** | Контракт пакетного API вариантов, архитектура React SDK без FOOC | Сборка npm-пакета, TypeScript-типизация, sendBeacon, буферизация событий |
 | **ПРИОРИТЕТ 7 (P1/P2)** | **High-Load Server-Side SDK с Local Evaluation (завершён)** | Математика детерминированного хеширования (SHA-256), отказоустойчивость | Реализация Python и Go SDK, фоновый воркер синхронизации экспериментов |
 | **ПРИОРИТЕТ 8 (P2)** | **Публичная документация API и мониторинг (планируется)** | Стандарты API-контрактов и SLA метрики шлюза | Swagger UI (`/docs`) в Nginx, экспорт Prometheus-метрик (`/metrics`) |
-| **ПРИОРИТЕТ 9 (P1)** | **Lite-вариант для одного VPS (планируется)** | Компромиссы без Kafka и Redis, модель обновления конфигов | Go-монолит (варианты + трекер + admin API), прямая запись в ClickHouse |
+| **ПРИОРИТЕТ 9 (P1)** | **Lite-вариант для одного VPS (завершён)** | Компромиссы без Kafka и Redis, модель обновления конфигов | Go-монолит (варианты + трекер + admin API), прямая запись в ClickHouse |
+| **ПРИОРИТЕТ 10 (P1)** | **Эксплуатация lite и профиль `scale` (планируется)** | Модель надёжности без брокера, TLS, бэкапы | Дисковый spool, `/metrics` + Grafana, Caddy, установщик, профиль с Kafka |
 
 ---
 
@@ -32,14 +37,14 @@
 
 ### Зона ИИ (генерация кода и авто-исправления):
 - [x] **1.4. Исправление DDL ClickHouse:**
-  - **Файлы:** `infra/clickhouse/init/01-tables.sql` (таблица `tracking_events`), `infra/clickhouse/init/02-kafka.sql` (Kafka-очередь + MV, только режим с Kafka).
+  - **Файлы:** `infra/clickhouse/init/01-tables.sql` (таблица `tracking_events`), `infra/clickhouse/init/02-kafka.sql` (Kafka-очередь + MV; в lite удалён, тег `v1-python`).
   - **Статус:** Исправлено. Изначально синтаксическая ошибка (лишняя запятая); позже единый init-скрипт разделён на два файла, а у Kafka-таблицы убраны `DEFAULT` (ClickHouse 24.8 отклонял `CREATE`, и на свежем томе очередь и MV не создавались), добавлены `kafka_handle_error_mode = 'stream'` и фильтр `_error` в MV.
 - [x] **1.5. Health Checks для Go `track_api`:**
-  - **Файлы:** `apps/track_api_go/cmd/api/main.go`, `docker-compose.apps.yml`, `nginx/nginx.conf`
+  - **Файлы:** `apps/track_api_go/cmd/api/main.go` (тег `v1-python`; в lite — `apps/synaq`), `docker-compose.apps.yml`, `nginx/nginx.conf`
   - **Статус:** Реализовано. Добавлен роут `GET /health`, проксирование `/health/track` и healthcheck-проба в docker-compose.
 - [x] **1.6. Конфигурация через переменные окружения в Go:**
-  - **Файл:** `apps/track_api_go/cmd/api/main.go`
-  - **Статус:** Реализовано. Переменные `TOPIC` и `KAFKA_BROKERS` считываются в runtime с дефолтными fallback.
+  - **Файл:** `apps/track_api_go/cmd/api/main.go` (тег `v1-python`)
+  - **Статус:** Реализовано. Переменные `TOPIC` и `KAFKA_BROKERS` считывались в runtime с дефолтными fallback. В lite synaq читает `CLICKHOUSE_URL`, `CH_*`, `POSTGRES_*`, `OIDC_*`.
 
 ---
 
@@ -50,7 +55,7 @@
   - Эндпоинт получения варианта: `GET /api/v1/variants/{experiment_name}?user_id=123`.
   - Эндпоинт отправки конверсии: `POST /api/v1/tracker/events`.
 - [x] **2.2. Верификация сквозного сценария (End-to-End):**
-  - Тестовый набор полностью зелёный: 402 pytest-теста (`make test`) плюс Go-тесты трекера и `sdk/go` (`make go-test`); сквозной сценарий — `make demo`.
+  - Тестовый набор полностью зелёный. В lite: `make go-test` (synaq и `sdk/go`), `make test` (164 pytest-теста: `analytics_api` и Python SDK), `make smoke` (59 HTTP-тестов synaq на docker-стенде); сквозной сценарий — `make demo`.
 
 ### Зона ИИ (Реализация SDK и демо):
 - [x] **2.3. Легковесный клиентский SDK (JavaScript / TypeScript):**
@@ -79,11 +84,11 @@
   - **Файл:** `apps/analytics_api/src/api/v1/stats.py` (статистика перенесена из `experiment_api` в `analytics_api`)
   - **Статус:** Вызов `_stat_analyzer.analyze` вынесен в пул потоков через `asyncio.to_thread(...)`, исключив заморозку Event Loop FastAPI.
 - [x] **3.6. Устранение блокирующего вызова `KEYS *` в Redis:**
-  - **Файл:** `apps/experiment_api/src/services/cache.py`
+  - **Файл:** `apps/experiment_api/src/services/cache.py` (тег `v1-python`; в lite Redis нет)
   - **Статус:** Заменено на неблокирующий итератор `scan_iter(match='experiment:*', count=100)`.
 - [x] **3.7. Контейнерная безопасность Go:**
-  - **Файл:** `apps/track_api_go/Dockerfile`
-  - **Статус:** Добавлен непривилегированный пользователь `USER appuser`.
+  - **Файл:** `apps/track_api_go/Dockerfile` (тег `v1-python`)
+  - **Статус:** Добавлен непривилегированный пользователь `USER appuser`. В lite `apps/synaq/Dockerfile` — статический бинарь, контейнер read-only без capabilities.
 - [x] **3.8. Настройка Keep-Alive пула в Nginx:**
   - **Файл:** `nginx/nginx.conf`
   - **Статус:** Настроены `upstream` блоки с `keepalive 64;`, `proxy_http_version 1.1;`, `proxy_set_header Connection ""` и защитными заголовками.
@@ -106,9 +111,9 @@
 ### Зона ИИ (Реализация и интеграция):
 - [x] **4.3. Добавление Zitadel в Docker Compose стек:**
   - **Файл:** `infra/docker-compose.infra.yml`
-  - **Статус:** Реализовано. Сервис `zitadel` (`ghcr.io/zitadel/zitadel`, встроенный Login UI v1) использует существующий PostgreSQL (своя БД `zitadel`). Одноразовый идемпотентный `zitadel-init` (`infra/zitadel/bootstrap.sh`) создаёт проект, роли, OIDC-приложение дашборда и сервисный аккаунт `synaq-automation`, публичный конфиг пишет в `infra/zitadel/public/oidc.json`.
-- [x] **4.4. Валидация JWT в FastAPI (`experiment_api`):**
-  - **Файлы:** `apps/experiment_api/src/core/auth.py`, `apps/analytics_api/src/core/auth.py`
+  - **Статус:** Реализовано. Сервис `zitadel` (`ghcr.io/zitadel/zitadel`, встроенный Login UI v1); в Python-версии — общий PostgreSQL (своя БД `zitadel`), в lite — отдельный `postgres-zitadel`. Одноразовый идемпотентный `zitadel-init` (`infra/zitadel/bootstrap.sh`) создаёт проект, роли, OIDC-приложение дашборда и сервисный аккаунт `synaq-automation`, публичный конфиг пишет в `infra/zitadel/public/oidc.json`.
+- [x] **4.4. Валидация JWT в API:**
+  - **Файлы:** `apps/analytics_api/src/core/auth.py`, в lite — `apps/synaq/internal/auth` (Go); в Python-версии ещё `apps/experiment_api/src/core/auth.py` (тег `v1-python`)
   - **Статус:** Реализовано в обоих сервисах. Кэш JWKS с TTL и ограничением частоты перезапросов, fail closed (503, если OIDC не настроен или JWKS недоступен). Зависимость `require_roles(...)` на каждом защищённом роуте.
 - [x] **4.5. Маршрутизация Zitadel через Nginx Gateway:**
   - **Статус:** Реализовано с отклонением от плана: Zitadel вынесен на отдельный порт gateway `127.0.0.1:8081`, а не под префикс `/auth/`. Zitadel не работает под префиксом, а его корневые пути (`/admin/v1`, `/management/v1`, `/ui/console`) конфликтуют с нашими (`/admin`).
@@ -160,7 +165,7 @@
 
 ### Твоя зона:
 - [x] **7.1. Архитектура Local Evaluation:**
-  - Детерминированный алгоритм в памяти бэкенда: `bucket = SHA-256("{user_id}:{experiment}") % 10000`, варианты в алфавитном порядке, целочисленное сравнение `bucket * total < cumulative * 10000`. Совпадение с сервером закреплено тестами (`tests/test_server_sdk.py`) и golden-векторами (`sdk/go/synaq_test.go`).
+  - Детерминированный алгоритм в памяти бэкенда: `bucket = SHA-256("{user_id}:{experiment}") % 10000`, варианты в алфавитном порядке, целочисленное сравнение `bucket * total < cumulative * 10000`. Совпадение с сервером закреплено golden-векторами (`apps/synaq/internal/allocation/testdata/golden.json`, `sdk/go/synaq_test.go`) и тестом `tests/test_server_sdk.py`.
   - При недоступности шлюза SDK продолжают работать на последнем загруженном наборе конфигов.
 
 ### Зона ИИ:
@@ -186,23 +191,32 @@
 
 ---
 
-## ПРИОРИТЕТ 9: Lite-вариант для одного VPS (планируется, ветка `lite`)
-*Минимальный self-hosted вариант для стартапа: 1 VPS, 2 vCPU / 4 GB, ориентир ~1–2 тыс. событий/с. Ветка `main` остаётся «enterprise»-вариантом.*
+## ПРИОРИТЕТ 9: Lite-вариант для одного VPS (завершён, ветка `lite`)
+*Минимальный self-hosted вариант для стартапа: 1 VPS, 2 vCPU / 4 GB, ориентир ~1–2 тыс. событий/с. Решение — [ADR 0002](adr/0002-lite-go-monolith.md).*
 
 ### Твоя зона:
-- [ ] **9.1. Архитектура и компромиссы:**
-  - Без Redis и Kafka. Без Kafka нет долговременного буфера: пока ClickHouse недоступен, события ждут в ограниченном буфере в памяти трекера, затем клиенты получают `503` + `Retry-After`; при перезапуске процесса содержимое буфера теряется. Для A/B-аналитики допустимо, для биллинга — нет.
-  - Отдельные инстансы Postgres для бизнес-данных и для Zitadel.
+- [x] **9.1. Архитектура и компромиссы:**
+  - Без Redis и Kafka. Без брокера нет долговременного буфера: `200` значит «принято в буфер»; батч, не записанный за 5 попыток, отбрасывается; буфер полон → `503` + `Retry-After`; при падении процесса буфер теряется. Для A/B-аналитики допустимо, для биллинга — нет.
+  - Отдельные инстансы Postgres для бизнес-данных (`postgres-app`) и для Zitadel (`postgres-zitadel`).
 
 ### Зона ИИ:
-- [x] **9.2. Прямая запись событий в ClickHouse:**
-  - `EVENT_SINK=clickhouse` уже реализован в `apps/track_api_go/internal/sink/clickhouse`: ограниченный буфер (`CH_BUFFER_SIZE`), батчи `INSERT ... FORMAT JSONEachRow` (`CH_BATCH_SIZE`, `CH_FLUSH_INTERVAL`), ретраи с backoff, `503` при переполнении. Таблица та же (`01-tables.sql`), `02-kafka.sql` не нужен.
-- [ ] **9.3. Go-монолит:**
-  - Один сервис: выдача вариантов + трекер + admin API (CRUD экспериментов, JWT Zitadel). Тот же алгоритм распределения (общие golden-векторы с `sdk/go`).
-- [ ] **9.4. Конфиги в памяти:**
-  - Загрузка активных экспериментов из Postgres в память процесса; обновление по `LISTEN/NOTIFY` при изменениях и полная перезагрузка раз в 30 с как страховка от пропущенных уведомлений.
-- [ ] **9.5. Compose для lite:**
-  - Gateway, Go-сервис, `analytics_api` (остаётся на Python), ClickHouse, два Postgres, Zitadel, дашборд.
+- [x] **9.2. Прямая запись событий в ClickHouse:** `apps/synaq/internal/sink/clickhouse` — ограниченный буфер (`CH_BUFFER_SIZE`, `CH_MAX_BUFFERED_BYTES`), батчи `INSERT ... FORMAT JSONEachRow` (`CH_BATCH_SIZE`, `CH_FLUSH_INTERVAL`), ретраи с backoff. В ClickHouse только `01-tables.sql`.
+- [x] **9.3. Go-монолит `apps/synaq`:** выдача вариантов + трекер + admin API (JWT Zitadel), HTTP-контракт Python-версии (smoke-набор `tests/contract`, `make smoke`), строгие типы и `422` в формате FastAPI. Распределение — golden-векторы Python-сервера.
+- [x] **9.4. Конфиги в памяти:** снимок из Postgres, обновление по `LISTEN/NOTIFY` и полное перечитывание раз в 30 с, `/readyz`.
+- [x] **9.5. Compose для lite:** gateway, synaq, `analytics_api`, ClickHouse (low-memory), два Postgres, Zitadel, дашборд; `mem_limit` ~3.4 ГБ.
+- [x] **9.6. Вывод Python `experiment_api` из ветки:** код удалён, доступен по тегу `v1-python`; CI, Dependabot и тесты без него.
+
+---
+
+## ПРИОРИТЕТ 10: Эксплуатация lite и профиль `scale` (планируется)
+
+- [ ] **10.1. Дисковый spool** для буфера трекера: события переживают рестарт и долгую недоступность ClickHouse.
+- [ ] **10.2. Реплики synaq** за gateway (каждая держит свой снимок и слушает `NOTIFY`).
+- [ ] **10.3. `/metrics` + профиль Grafana**: RPS, latency, `503` по переполнению буфера, отброшенные батчи, возраст снимка.
+- [ ] **10.4. Caddy с auto-TLS** и Zitadel на `auth.<domain>` вместо отдельного порта.
+- [ ] **10.5. Установка одной командой** (генерация секретов `.env`, проверка ресурсов).
+- [ ] **10.6. Бэкап и восстановление** `postgres-app`, `postgres-zitadel` и ClickHouse.
+- [ ] **10.7. Профиль `scale`**: Kafka/Redpanda как долговременный буфер в той же кодовой базе (продюсер за `sink.Producer`, ClickHouse Kafka engine + MV по [ADR 0001](adr/0001-kafka-vs-rabbitmq.md)).
 
 ---
 
@@ -211,11 +225,11 @@
 - **Поддержка Cloudflare Real-IP**: В [nginx.conf](../nginx/nginx.conf) настроен `set_real_ip_from` для Cloudflare IPv4/IPv6 сетей, заголовок `CF-Connecting-IP` и `real_ip_recursive on`.
 - **Preflight CORS (204 No Content)**: Полная обработка preflight `OPTIONS` для публичных маршрутов (`/sdk/`, `/api/v1/variants/`, `/api/v1/tracker/`).
 - **Эталонный шаблон корпоративной интеграции**: Создан [company-edge-integration.example.conf](../nginx/company-edge-integration.example.conf) с тремя сценариями (поддомен, префикс пути, Zitadel gRPC) и изоляцией `/dashboard/` через VPN / Cloudflare Access.
-- **Redis circuit breaker и таймауты** (`experiment_api`): короткие таймауты сокета (0.3 с) и одна попытка повтора; после ошибки Redis пропускается на 5 с, конфиг читается из PostgreSQL. Публичный `/api/v1/variants/` ограничен в Nginx (`limit_req`, 50 r/s с IP), чтобы падение Redis нельзя было превратить в DoS на Postgres.
-- **GitHub Actions CI** (`.github/workflows/ci.yml`): `ruff` + `pytest`; `gofmt` + `go vet` + `go test` для трекера и `sdk/go`, `go build` трекера; typecheck и сборка дашборда; сборка Docker-образов. Actions закреплены по SHA, обновления через Dependabot (`.github/dependabot.yml`).
+- **Redis circuit breaker и таймауты** (`experiment_api`, тег `v1-python`; в lite Redis нет): короткие таймауты сокета (0.3 с) и одна попытка повтора; после ошибки Redis пропускается на 5 с, конфиг читается из PostgreSQL. Публичный `/api/v1/variants/` ограничен в Nginx (`limit_req`, 50 r/s с IP), чтобы падение Redis нельзя было превратить в DoS на Postgres.
+- **GitHub Actions CI** (`.github/workflows/ci.yml`): `ruff` + `pytest`; `gofmt` + `go vet` + `go test` для `apps/synaq` и `sdk/go`, `go build` synaq; smoke-набор HTTP-API; typecheck и сборка дашборда; сборка Docker-образов. Actions закреплены по SHA, обновления через Dependabot (`.github/dependabot.yml`).
 - **`PATCH /api/v1/experiments/{name}`**: частичное обновление эксперимента; изменение вариантов активного эксперимента отклоняется с `409 Conflict` (иначе поменялось бы распределение пользователей).
-- **Валидация имён и вариантов**: regex-паттерн и длина имён экспериментов и ключей вариантов, зарезервированные имена, лимит числа вариантов и положительные веса (Pydantic-схемы).
+- **Валидация имён и вариантов**: regex-паттерн и длина имён экспериментов и ключей вариантов, зарезервированные имена, лимит числа вариантов и веса 1..1 000 000 (в Python-версии — Pydantic-схемы, в lite — `apps/synaq/internal/api/validate`).
 - **Канонический порядок вариантов при распределении**: варианты перебираются по алфавиту, сравнение в целых числах. Исправлен баг: Postgres JSONB не сохраняет порядок ключей, и после истечения TTL кэша Redis у части пользователей менялся вариант. Сервер, `sdk/python` и `sdk/go` синхронизированы.
-- **Защита Go-трекера**: лимиты размера (тело 64 КБ → `413`, поля 256 символов, `event_data` 16 КБ → `400`), окно `timestamp` [сейчас − 7 дней, сейчас + 5 минут], ограниченная очередь Kafka-продюсера (`503` + `Retry-After`), `limit_req` на `/api/v1/tracker/` (200 r/s с IP), таймауты HTTP-сервера, graceful shutdown, `/health` с проверкой приёмника. Генерация `event_id`, если клиент его не передал.
-- **Интерфейс приёмника событий** (`internal/sink`): `EVENT_SINK=kafka` (по умолчанию) или `clickhouse` (lite).
-- **Демо и Makefile**: `make up / token / demo / ch-reset / test / lint / go-test`.
+- **Защита Go-трекера**: лимиты размера (тело 64 КБ → `413`, поля 256 символов, `event_data` 16 КБ → `400`), окно `timestamp` [сейчас − 7 дней, сейчас + 5 минут], ограниченная очередь продюсера (`503` + `Retry-After`), `limit_req` на `/api/v1/tracker/` (200 r/s с IP), таймауты HTTP-сервера, graceful shutdown, `/health` с проверкой приёмника. Генерация `event_id`, если клиент его не передал.
+- **Интерфейс приёмника событий** (`internal/sink`): в Python-версии `EVENT_SINK=kafka` или `clickhouse`; в lite synaq поддерживает только `clickhouse`, Kafka вернётся в профиле `scale`.
+- **Демо и Makefile**: `make up / token / demo / test / lint / go-test / smoke / zitadel-reset`.

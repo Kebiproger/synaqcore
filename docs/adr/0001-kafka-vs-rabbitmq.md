@@ -1,7 +1,8 @@
 # ADR 0001. Брокер для приёма событий: Kafka (Redpanda), а не RabbitMQ
 
-- **Статус:** принято
-- **Область:** ветка `main` (в планируемом lite-варианте брокера нет, см. [README](../../README.md#main-vs-lite))
+- **Статус:** принято для Python-версии (тег `v1-python`, история `main`) и будущего профиля `scale`.
+  В текущем lite брокера нет: события пишутся в ClickHouse напрямую, см. [ADR 0002](0002-lite-go-monolith.md).
+- **Область:** исторический контекст; пути ниже (`apps/track_api_go`, `02-kafka.sql`) есть только в теге `v1-python`.
 
 ## Контекст
 
@@ -75,6 +76,6 @@ ClickHouse забирает данные из топика сам, силами 
 2. **`MATERIALIZED VIEW` (триггер на INSERT):** `tracking_events_mv` прогоняет каждый микробатч через `SELECT` и пишет в постоянную таблицу.
 3. **`ReplacingMergeTree` (постоянное хранилище):** `tracking_events`, партиционирование `PARTITION BY toYYYYMM(timestamp)`.
 
-DDL: [`infra/clickhouse/init/01-tables.sql`](../../infra/clickhouse/init/01-tables.sql) и
-[`infra/clickhouse/init/02-kafka.sql`](../../infra/clickhouse/init/02-kafka.sql).
+DDL: [`infra/clickhouse/init/01-tables.sql`](../../infra/clickhouse/init/01-tables.sql) и `infra/clickhouse/init/02-kafka.sql`
+(очередь + MV; в lite файла нет, он в теге `v1-python` и вернётся с профилем `scale`).
 Подробное руководство: [docs/clickhouse-kafka/README.md](../clickhouse-kafka/README.md).

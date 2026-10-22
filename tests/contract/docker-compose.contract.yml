@@ -1,0 +1,94 @@
+# Smoke-стенд Go-сервиса synaq (apps/synaq): synaq + Postgres + ClickHouse
+# (только 01-tables.sql, lite-режим) + статический JWKS. Только для тестов.
+#
+# ВНИМАНИЕ: все пароли ниже — СИНТЕТИЧЕСКИЕ ТЕСТОВЫЕ значения одноразового стенда
+# (Postgres/ClickHouse без внешних портов, данные в tmpfs, `down -v`). Это не секреты
+# и нигде больше не используются. Не копируйте их в боевые конфиги.
+#
+# Отдельное имя проекта (name:) — стенд никогда не трогает основной стек.
+# Запуск: tests/contract/run.sh. Наружу публикуется только 127.0.0.1:18002.
+
+name: synaq-contract
+
+x-test-oidc: &test-oidc
+  # Ключи JWKS генерирует tests/contract/conftest.py и пишет в ./.runtime/jwks.json
+  OIDC_ISSUER: http://contract-issuer.test
+  OIDC_AUDIENCE: "000000000000000001"
+  OIDC_JWKS_URL: http://jwks:8000/jwks.json
+  OIDC_JWKS_HOST: ""
+  OIDC_CONFIG_FILE: ""
+
+services:
+  # ─────────── Общий JWKS (статический файл) ───────────
+  jwks:
+    image: python:3.11-alpine
+    command: ["python", "-m", "http.server", "8000", "--directory", "/srv/jwks"]
+    user: "65534:65534"
+    read_only: true
+    volumes:
+      - ./.runtime:/srv/jwks:ro
+    networks: [contract_net]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  # ─────────── Go synaq ───────────
+  pg:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: contract_test
+      POSTGRES_PASSWORD: contract_test_password  # синтетический тестовый пароль
+      POSTGRES_DB: synaq_smoke
+    tmpfs: [/var/lib/postgresql/data]
+    networks: [contract_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U contract_test -d synaq_smoke"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    environment:
+      CLICKHOUSE_USER: contract_test
+      CLICKHOUSE_PASSWORD: contract_test_password  # синтетический тестовый пароль
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "0"
+    volumes:
+      # Только таблица событий (lite-режим, без Kafka)
+      - ../../infra/clickhouse/init/01-tables.sql:/docker-entrypoint-initdb.d/01-tables.sql:ro
+    tmpfs: [/var/lib/clickhouse]
+    networks: [contract_net]
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  synaq:
+    build:
+      # SYNAQ_BUILD_CONTEXT — собрать из другого каталога (например, снимка git archive)
+      context: ${SYNAQ_BUILD_CONTEXT:-../../apps/synaq}
+    environment:
+      <<: *test-oidc
+      POSTGRES_HOST: pg
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: contract_test
+      POSTGRES_PASSWORD: contract_test_password  # синтетический тестовый пароль
+      POSTGRES_DB: synaq_smoke
+      EVENT_SINK: clickhouse
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: contract_test
+      CLICKHOUSE_PASSWORD: contract_test_password  # синтетический тестовый пароль
+    depends_on:
+      pg: {condition: service_healthy}
+      clickhouse: {condition: service_healthy}
+      jwks: {condition: service_healthy}
+    ports:
+      - "127.0.0.1:${SYNAQ_PORT:-18002}:8000"
+    networks: [contract_net]
+
+networks:
+  contract_net:
+    name: synaq-contract-net
