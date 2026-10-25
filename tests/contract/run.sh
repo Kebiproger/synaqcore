@@ -4,15 +4,27 @@
 #   tests/contract/run.sh                  # весь набор
 #   tests/contract/run.sh -k variants -x   # аргументы передаются в pytest
 #   SMOKE_KEEP=1 tests/contract/run.sh     # не сносить стенд после прогона
+#   SMOKE_EVENT_SINK=clickhouse tests/contract/run.sh   # события в ClickHouse (make smoke-ch)
 #
 # Переменные: PYTHON (по умолчанию ./venv/bin/python или python3), SYNAQ_PORT (18002),
-# SYNAQ_BASE_URL (по умолчанию http://127.0.0.1:$SYNAQ_PORT), SMOKE_KEEP.
+# SYNAQ_BASE_URL (по умолчанию http://127.0.0.1:$SYNAQ_PORT), SMOKE_KEEP,
+# SMOKE_EVENT_SINK (postgres по умолчанию | clickhouse).
 # Стенд — отдельный compose-проект synaq-contract, основной стек не затрагивается.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-COMPOSE=(docker compose -f "$SCRIPT_DIR/docker-compose.contract.yml" -p synaq-contract)
+
+# Хранилище событий: postgres (по умолчанию) или clickhouse (профиль clickhouse стенда)
+SMOKE_EVENT_SINK="${SMOKE_EVENT_SINK:-postgres}"
+case "$SMOKE_EVENT_SINK" in
+    postgres) PROFILE_ARGS=() ;;
+    clickhouse) PROFILE_ARGS=(--profile clickhouse) ;;
+    *) echo "SMOKE_EVENT_SINK должен быть postgres или clickhouse, получено: $SMOKE_EVENT_SINK" >&2; exit 2 ;;
+esac
+export SMOKE_EVENT_SINK
+# Профиль нужен и для `down`, иначе контейнер clickhouse остался бы после прогона
+COMPOSE=(docker compose -f "$SCRIPT_DIR/docker-compose.contract.yml" -p synaq-contract ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"})
 
 if [[ -z "${PYTHON:-}" ]]; then
     if [[ -x "$ROOT_DIR/venv/bin/python" ]]; then PYTHON="$ROOT_DIR/venv/bin/python"; else PYTHON=python3; fi
@@ -34,7 +46,7 @@ trap cleanup EXIT INT TERM
 # Каталог для jwks.json должен существовать до старта (иначе docker создаст его от root)
 mkdir -p "$SCRIPT_DIR/.runtime"
 
-echo ">>> Поднимаем smoke-стенд"
+echo ">>> Поднимаем smoke-стенд (события: $SMOKE_EVENT_SINK)"
 # Готовность synaq проверяет conftest.py (/health с таймаутом), поэтому без --wait
 "${COMPOSE[@]}" up --build -d
 

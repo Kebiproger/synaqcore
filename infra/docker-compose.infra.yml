@@ -1,4 +1,4 @@
-# Lite-стек (1 VPS, 2 vCPU / 4 GB): без Redis и Redpanda/Kafka.
+# Lite-стек (1 VPS, 2 vCPU / 2 ГБ): без Redis и Redpanda/Kafka; ClickHouse — профиль scale.
 # Общие переменные Zitadel (YAML-якоря). Значения ${...} интерполируются
 # из infra/.env.infra (см. include в корневом docker-compose.yml).
 x-zitadel-db-env: &zitadel-db-env
@@ -23,9 +23,12 @@ x-zitadel-runtime-env: &zitadel-runtime-env
 
 services:
   # ----------------------------------------------------------------------------
-  # Бизнес-БД synaq (эксперименты). Учётка — POSTGRES_* из infra/.env.infra;
-  # те же значения должны стоять в apps/.env.apps (POSTGRES_USER/_PASSWORD/_DB).
+  # Бизнес-БД synaq: эксперименты (public) и события (events, по умолчанию
+  # EVENT_STORE=postgres). POSTGRES_* из infra/.env.infra — учётка
+  # суперпользователя; её видят только postgres-app и postgres-app-init.
+  # Приложения ходят под ролями synaq_app / synaq_analytics (см. ниже).
   # Передаём только нужные переменные, а не весь .env.infra (там секреты Zitadel).
+  # Настройки под mem_limit 448m (бюджет 2 ГБ VPS).
   # ----------------------------------------------------------------------------
   postgres-app:
     container_name: postgres-app
@@ -33,9 +36,21 @@ services:
     command:
       - postgres
       - -c
-      - shared_buffers=64MB
+      - shared_buffers=96MB
       - -c
-      - max_connections=30
+      - effective_cache_size=256MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=32MB
+      - -c
+      - max_connections=40
+      - -c
+      - wal_compression=on
+      - -c
+      - max_wal_size=1GB
+      - -c
+      - checkpoint_timeout=15min
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?задайте в infra/.env.infra}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте в infra/.env.infra}
@@ -44,9 +59,9 @@ services:
       - postgres_app_data:/var/lib/postgresql/data
     networks:
       - ab_testing_net
-    mem_limit: 256m
-    # Docker по умолчанию даёт 64 МБ /dev/shm; для shared_buffers=64MB этого мало
-    shm_size: 128m
+    mem_limit: 448m
+    # Docker по умолчанию даёт 64 МБ /dev/shm; для shared_buffers=96MB этого мало
+    shm_size: 160m
     stop_grace_period: 30s
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
@@ -54,6 +69,43 @@ services:
       timeout: 3s
       retries: 5
     restart: unless-stopped
+
+  # ----------------------------------------------------------------------------
+  # Одноразовая идемпотентная настройка ролей postgres-app (каждый `up`):
+  #   synaq_app       — владелец схем public и events (пароль SYNAQ_DB_PASSWORD);
+  #   synaq_analytics — только чтение events (пароль ANALYTICS_DB_PASSWORD).
+  # Объекты, созданные прежними версиями под суперпользователем, передаются
+  # synaq_app. Пароли ≥16 символов, иначе сервис завершается с ошибкой.
+  # ----------------------------------------------------------------------------
+  postgres-app-init:
+    container_name: postgres-app-init
+    image: postgres:16-alpine
+    # uid/gid postgres в alpine-образе — не root
+    user: "70:70"
+    entrypoint: ["/bin/sh", "/init-roles.sh"]
+    environment:
+      PGHOST: postgres-app
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER:?задайте в infra/.env.infra}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?задайте в infra/.env.infra}
+      PGDATABASE: ${POSTGRES_DB:?задайте в infra/.env.infra}
+      PGCONNECT_TIMEOUT: 10
+      SYNAQ_DB_PASSWORD: ${SYNAQ_DB_PASSWORD:?задайте в infra/.env.infra (≥16 символов)}
+      ANALYTICS_DB_PASSWORD: ${ANALYTICS_DB_PASSWORD:?задайте в infra/.env.infra (≥16 символов)}
+    volumes:
+      - ./postgres-app/init-roles.sh:/init-roles.sh:ro
+    networks:
+      - ab_testing_net
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 64m
+    depends_on:
+      postgres-app:
+        condition: service_healthy
+    restart: "no"
 
   # ----------------------------------------------------------------------------
   # Отдельный Postgres только для Zitadel (изоляция от бизнес-БД).
@@ -77,7 +129,7 @@ services:
       - postgres_zitadel_data:/var/lib/postgresql/data
     networks:
       - ab_testing_net
-    mem_limit: 256m
+    mem_limit: 192m
     stop_grace_period: 30s
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d postgres"]
@@ -163,10 +215,10 @@ services:
     environment:
       <<: [*zitadel-db-env, *zitadel-runtime-env]
       # Go runtime: мягкий лимит кучи ниже mem_limit, чтобы GC срабатывал до OOM-kill
-      GOMEMLIMIT: 400MiB
+      GOMEMLIMIT: 360MiB
     networks:
       - ab_testing_net
-    mem_limit: 512m
+    mem_limit: 448m
     depends_on:
       zitadel-setup:
         condition: service_completed_successfully
@@ -208,7 +260,9 @@ services:
         condition: service_healthy
 
   # ----------------------------------------------------------------------------
-  # ClickHouse. Lite: synaq пишет события напрямую (HTTP INSERT), Kafka нет.
+  # ClickHouse — только в профиле scale (`docker compose --profile scale up`,
+  # EVENT_STORE=clickhouse). По умолчанию события хранятся в postgres-app.
+  # synaq пишет события напрямую (HTTP INSERT), Kafka нет.
   # Init-скрипт монтируется одним файлом (выполняется только на пустом томе):
   #   01-tables.sql - таблица tracking_events.
   # Настройки под малый объём RAM — отдельными файлами, а не каталогами:
@@ -219,10 +273,14 @@ services:
   clickhouse:
     container_name: clickhouse
     image: clickhouse/clickhouse-server:24.8
+    profiles: [scale]
     # Только переменные ClickHouse, а не весь .env.infra (там секреты Zitadel/Postgres)
     environment:
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?задайте в infra/.env.infra}
+      # Не `:?`: compose интерполирует и неактивные профили, и обязательная переменная
+      # ломала бы `docker compose config/up` без scale. Пустой пароль проверяет
+      # `make up-scale`; сам образ при пустом пароле закрывает default от сети.
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
       CLICKHOUSE_DB: ${CLICKHOUSE_DB:-}
     volumes:
       - clickhouse_data:/var/lib/clickhouse

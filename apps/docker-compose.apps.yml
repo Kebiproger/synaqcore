@@ -1,4 +1,9 @@
 # Lite-стек: synaq (Go-монолит: выдача вариантов + admin API + трекер) и analytics_api.
+# События по умолчанию хранятся в postgres-app (схема events, EVENT_STORE=postgres);
+# ClickHouse поднимается только в профиле scale (EVENT_STORE=clickhouse, `make up-scale`).
+# Секреты БД берутся из infra/.env.infra (см. include в корневом docker-compose.yml);
+# явные записи environment: перекрывают env_file, поэтому устаревшие POSTGRES_USER/
+# POSTGRES_PASSWORD (суперпользователь) в старом apps/.env.apps не действуют.
 # Python experiment_api и Go track_api с Kafka/Redis — Python-версия (тег v1-python).
 services:
   synaq:
@@ -6,25 +11,34 @@ services:
     build: ./synaq
     env_file: .env.apps
     environment:
-      # События пишутся напрямую в ClickHouse (батчами по HTTP), без Kafka
-      EVENT_SINK: clickhouse
-      CLICKHOUSE_URL: ${CLICKHOUSE_URL:-http://clickhouse:8123}
-      # Бизнес-БД — отдельный postgres-app (учётка POSTGRES_USER/_PASSWORD/_DB из .env.apps)
+      # Хранилище событий: postgres (по умолчанию) или clickhouse (профиль scale)
+      EVENT_SINK: ${EVENT_STORE:-postgres}
+      # Бизнес-БД — postgres-app под ролью synaq_app (владелец схем public и events;
+      # роль и пароль создаёт postgres-app-init). Суперпользователь сюда не попадает.
       POSTGRES_HOST: postgres-app
       POSTGRES_PORT: 5432
+      POSTGRES_USER: synaq_app
+      POSTGRES_PASSWORD: ${SYNAQ_DB_PASSWORD:?задайте в infra/.env.infra (>=16 символов)}
+      POSTGRES_DB: ${POSTGRES_DB:?задайте в infra/.env.infra}
+      # Пул записи событий в Postgres (необязательно; значения по умолчанию — в коде)
+      PG_EVENTS_MAX_CONNS: ${PG_EVENTS_MAX_CONNS:-2}
+      # ClickHouse — только при EVENT_STORE=clickhouse (CH_* — в apps/.env.apps)
+      CLICKHOUSE_URL: ${CLICKHOUSE_URL:-http://clickhouse:8123}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
       # Zitadel OIDC; можно переопределить в shell/корневом .env
       OIDC_ISSUER: ${OIDC_ISSUER:-http://localhost:${ZITADEL_PORT:-8081}}
       OIDC_JWKS_URL: ${OIDC_JWKS_URL:-http://zitadel:8080/oauth/v2/keys}
       OIDC_JWKS_HOST: ${OIDC_JWKS_HOST:-localhost:${ZITADEL_PORT:-8081}}
       OIDC_CONFIG_FILE: ${OIDC_CONFIG_FILE:-/zitadel-public/oidc.json}
       # Мягкий лимит кучи Go ниже mem_limit: GC ужесточается до OOM-kill
-      GOMEMLIMIT: 192MiB
+      GOMEMLIMIT: 128MiB
     volumes:
       # Публичная OIDC-конфигурация (issuer, project_id, client_id) от zitadel-init
       - ../infra/zitadel/public:/zitadel-public:ro
     networks:
       - ab_testing_net
-    mem_limit: 256m
+    mem_limit: 160m
     # Hardening: статический бинарник, ФС только для чтения, без capabilities
     read_only: true
     cap_drop:
@@ -34,12 +48,17 @@ services:
     tmpfs:
       - /tmp:size=8m,mode=1777
     depends_on:
+      # Роли synaq_app / synaq_analytics должны существовать до старта
+      postgres-app-init:
+        condition: service_completed_successfully
       postgres-app:
         condition: service_healthy
+      # ClickHouse есть только в профиле scale; без него стек стартует как обычно
       clickhouse:
         condition: service_healthy
+        required: false
     # Готовность = снимок конфигураций загружен из Postgres (/readyz). Доступность
-    # ClickHouse для мониторинга — отдельно, GET /health/track (через gateway).
+    # хранилища событий для мониторинга — отдельно, GET /health/track (через gateway).
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8000/readyz || exit 1"]
       interval: 10s
@@ -48,15 +67,28 @@ services:
       start_period: 5s
     restart: unless-stopped
     # Graceful shutdown: до 5 с на остановку HTTP и до 5 с на дозапись буфера
-    # в ClickHouse (CloseTimeout). Стандартных 10 с Docker не хватает с запасом,
+    # в хранилище событий (CloseTimeout). Стандартных 10 с Docker не хватает с запасом,
     # после них контейнер получает SIGKILL и принятые события теряются.
     stop_grace_period: 20s
 
   analytics_api:
     container_name: analytics_api
     build: analytics_api
-    env_file: .env.apps
+    # Без env_file: все нужные переменные заданы явно ниже, а устаревший .env.apps
+    # (учётка суперпользователя POSTGRES_*) не должен попадать в контейнер аналитики.
     environment:
+      # Хранилище событий: postgres (роль synaq_analytics, только чтение схемы events)
+      # или clickhouse (профиль scale)
+      EVENTS_BACKEND: ${EVENT_STORE:-postgres}
+      EVENTS_PG_HOST: postgres-app
+      EVENTS_PG_PORT: 5432
+      EVENTS_PG_DB: ${POSTGRES_DB:?задайте в infra/.env.infra}
+      EVENTS_PG_USER: synaq_analytics
+      EVENTS_PG_PASSWORD: ${ANALYTICS_DB_PASSWORD:?задайте в infra/.env.infra (>=16 символов)}
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_HTTP_PORT: 8123
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
       # Zitadel OIDC; можно переопределить в shell/корневом .env
       OIDC_ISSUER: ${OIDC_ISSUER:-http://localhost:${ZITADEL_PORT:-8081}}
       OIDC_JWKS_URL: ${OIDC_JWKS_URL:-http://zitadel:8080/oauth/v2/keys}
@@ -70,7 +102,7 @@ services:
       - ../infra/zitadel/public:/zitadel-public:ro
     networks:
       - ab_testing_net
-    mem_limit: 512m
+    mem_limit: 320m
     read_only: true
     cap_drop:
       - ALL
@@ -79,8 +111,13 @@ services:
     tmpfs:
       - /tmp:size=32m,mode=1777
     depends_on:
+      postgres-app-init:
+        condition: service_completed_successfully
+      postgres-app:
+        condition: service_healthy
       clickhouse:
         condition: service_healthy
+        required: false
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://127.0.0.1:8000/health || exit 1"]
       interval: 10s

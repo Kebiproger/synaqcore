@@ -20,13 +20,27 @@ Python (анализаторы) делает то, что не умеет ClickH
 import asyncio
 import json as jason
 import logging
-import re
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 from fastapi import HTTPException
 
 from src.core.config import settings
+
+# Правила проверки ввода общие для ClickHouse и Postgres (src/services/validation.py);
+# реэкспорт сохраняет прежние импорты из этого модуля (stats.py, тесты).
+from src.services.validation import (  # noqa: F401
+    MAX_SEGMENTS,
+    _EXPERIMENT_NAME,
+    _OUTLIER_METRIC_FIELDS,
+    _SAFE_NAME,
+    _validate_event_names,
+    _validate_experiment_name,
+    _validate_goal_event,
+    _validate_limit,
+    _validate_metric_field,
+    _validate_segments,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,18 +53,6 @@ CLICKHOUSE_HTTP = (
 )
 CLICKHOUSE_USER = settings.CLICKHOUSE_USER
 CLICKHOUSE_PASS = settings.CLICKHOUSE_PASSWORD
-
-# Имена экспериментов: то же правило, что в synaq (apps/synaq/internal/api/validate).
-# Имя подставляется в SQL только внутри строкового литерала '...', никогда как
-# идентификатор; набор символов исключает кавычки, обратный слеш и пробелы (CWE-89).
-_EXPERIMENT_NAME = re.compile(r"[A-Za-z0-9_.\-]{1,50}")
-# Имена событий (goal_event) — строже: без точки, 1–50 символов (как Query max_length).
-_SAFE_NAME = re.compile(r"[A-Za-z0-9_\-]{1,50}")
-# Поля event_data, по которым разрешён поиск выбросов. metric_field подставляется
-# в SQL, поэтому принимается только из явного белого списка (CWE-89).
-_OUTLIER_METRIC_FIELDS = frozenset({"revenue", "amount", "price", "quantity"})
-# Максимум сегментов в одном запросе: каждый сегмент — отдельный запрос в ClickHouse.
-MAX_SEGMENTS = 10
 
 
 async def _ch_query(query: str) -> List[dict]:
@@ -87,64 +89,6 @@ async def _ch_query(query: str) -> List[dict]:
         ]
 
 
-def _validate_experiment_name(name: str) -> None:
-    """Проверка имени эксперимента: 1–50 символов, латиница, цифры, '_', '.', '-'.
-
-    fullmatch (а не match + '$'), чтобы не пропустить завершающий перевод строки.
-    Защита от SQL-инъекций (CWE-89).
-    """
-    if not isinstance(name, str) or not _EXPERIMENT_NAME.fullmatch(name):
-        raise HTTPException(
-            status_code=400,
-            detail="Недопустимое имя эксперимента. "
-                   "Используйте 1–50 символов: латиницу, цифры, точки, дефисы и подчёркивания.",
-        )
-
-
-def _validate_goal_event(goal_event: str) -> None:
-    """Проверка имени целевого события: только безопасные [a-zA-Z0-9_-].
-
-    Защита от SQL-инъекций (CWE-89).
-    """
-    if not isinstance(goal_event, str) or not _SAFE_NAME.fullmatch(goal_event):
-        raise HTTPException(
-            status_code=400,
-            detail="Недопустимое имя целевого события. "
-                   "Используйте только латиницу, цифры, дефисы и подчёркивания.",
-        )
-
-
-def _validate_event_names(event_names: List[str]) -> None:
-    """Проверка списка имён событий (шаги воронки, guardrail-события).
-
-    Каждое имя проверяется тем же правилом, что и goal_event (CWE-89).
-    """
-    if not isinstance(event_names, (list, tuple)):
-        raise HTTPException(
-            status_code=400,
-            detail="Ожидается список имён событий.",
-        )
-    for event_name in event_names:
-        _validate_goal_event(event_name)
-
-
-def _validate_metric_field(metric_field: str) -> None:
-    """Проверка поля метрики для поиска выбросов по белому списку (CWE-89)."""
-    if not isinstance(metric_field, str) or metric_field not in _OUTLIER_METRIC_FIELDS:
-        raise HTTPException(
-            status_code=400,
-            detail="Недопустимое поле метрики. "
-                   f"Допустимые значения: {', '.join(sorted(_OUTLIER_METRIC_FIELDS))}.",
-        )
-
-
-def _validate_limit(limit: int) -> int:
-    """LIMIT подставляется в SQL числом: принимаем только положительный int."""
-    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
-        raise HTTPException(status_code=400, detail="Недопустимое значение limit.")
-    return limit
-
-
 def _escape_sql_string(value: str) -> str:
     """Экранирование строки для безопасной подстановки в ClickHouse SQL.
 
@@ -156,32 +100,6 @@ def _escape_sql_string(value: str) -> str:
 def _escape_segment(segment: str) -> str:
     """Экранирование имени сегмента."""
     return _escape_sql_string(segment)
-
-
-def _validate_segments(segments: List[str]) -> List[str]:
-    """Проверка списка сегментов: те же символы, что у событий, без дублей, ≤ MAX_SEGMENTS.
-
-    Имя сегмента подставляется в SQL; помимо экранирования (_escape_segment)
-    допускаем только [A-Za-z0-9_-] (CWE-89). Дубли убираются с сохранением порядка.
-    """
-    if not isinstance(segments, (list, tuple)):
-        raise HTTPException(status_code=400, detail="Ожидается список сегментов.")
-    unique: List[str] = []
-    for segment in segments:
-        if not isinstance(segment, str) or not _SAFE_NAME.fullmatch(segment):
-            raise HTTPException(
-                status_code=400,
-                detail="Недопустимое имя сегмента. "
-                       "Используйте только латиницу, цифры, дефисы и подчёркивания.",
-            )
-        if segment not in unique:
-            unique.append(segment)
-    if len(unique) > MAX_SEGMENTS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Слишком много сегментов: максимум {MAX_SEGMENTS}.",
-        )
-    return unique
 
 
 def _json_number(field: str) -> str:

@@ -9,18 +9,89 @@ import (
 	chsink "synaq/internal/sink/clickhouse"
 )
 
-func TestCheckEventSink(t *testing.T) {
-	for _, mode := range []string{"", "clickhouse"} {
-		t.Setenv("EVENT_SINK", mode)
-		if err := checkEventSink(); err != nil {
-			t.Errorf("EVENT_SINK=%q: неожиданная ошибка %v", mode, err)
-		}
+func TestEventSinkFromEnv(t *testing.T) {
+	cases := map[string]struct {
+		val     string
+		want    string
+		wantErr bool
+	}{
+		"default":    {"", "postgres", false},
+		"postgres":   {"postgres", "postgres", false},
+		"clickhouse": {"clickhouse", "clickhouse", false},
+		"kafka":      {"kafka", "", true},
+		"case":       {"ClickHouse", "", true},
 	}
-	for _, mode := range []string{"kafka", "ClickHouse", "other"} {
-		t.Setenv("EVENT_SINK", mode)
-		if err := checkEventSink(); err == nil {
-			t.Errorf("EVENT_SINK=%q: ожидалась ошибка", mode)
-		}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("EVENT_SINK", c.val)
+			got, err := eventSinkFromEnv()
+			if (err != nil) != c.wantErr || got != c.want {
+				t.Errorf("got (%q, %v), want (%q, err=%v)", got, err, c.want, c.wantErr)
+			}
+		})
+	}
+}
+
+var eventsEnvKeys = []string{
+	"PG_EVENTS_MAX_CONNS", "EVENTS_BUFFER_SIZE", "EVENTS_MAX_BUFFERED_BYTES", "EVENTS_BATCH_SIZE",
+	"EVENTS_FLUSH_INTERVAL", "EVENTS_RETENTION_DAYS", "EVENTS_PARTITIONS_AHEAD",
+}
+
+func clearEventsEnv(t *testing.T) {
+	t.Helper()
+	for _, k := range eventsEnvKeys {
+		t.Setenv(k, "")
+	}
+}
+
+func TestPostgresEventsFromEnv_Defaults(t *testing.T) {
+	clearEventsEnv(t)
+	s, err := postgresEventsFromEnv()
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if s.MaxConns != 2 || s.Sink.BufferSize != 10000 || s.Sink.MaxBufferedBytes != 32<<20 ||
+		s.Sink.BatchSize != 500 || s.Sink.FlushInterval != time.Second ||
+		s.RetentionDays != 90 || s.AheadDays != 3 {
+		t.Errorf("значения по умолчанию не применены: %+v", s)
+	}
+}
+
+func TestPostgresEventsFromEnv_Overrides(t *testing.T) {
+	clearEventsEnv(t)
+	t.Setenv("PG_EVENTS_MAX_CONNS", "4")
+	t.Setenv("EVENTS_FLUSH_INTERVAL", "250ms")
+	t.Setenv("EVENTS_RETENTION_DAYS", "8")
+	t.Setenv("EVENTS_PARTITIONS_AHEAD", "30")
+	s, err := postgresEventsFromEnv()
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if s.MaxConns != 4 || s.Sink.FlushInterval != 250*time.Millisecond || s.RetentionDays != 8 || s.AheadDays != 30 {
+		t.Errorf("переопределения не применены: %+v", s)
+	}
+}
+
+func TestPostgresEventsFromEnv_Invalid(t *testing.T) {
+	cases := map[string][2]string{
+		"conns zero":      {"PG_EVENTS_MAX_CONNS", "0"},
+		"buffer":          {"EVENTS_BUFFER_SIZE", "-1"},
+		"bytes":           {"EVENTS_MAX_BUFFERED_BYTES", "x"},
+		"batch":           {"EVENTS_BATCH_SIZE", "0"},
+		"interval":        {"EVENTS_FLUSH_INTERVAL", "10"},
+		"retention < 8":   {"EVENTS_RETENTION_DAYS", "7"},
+		"retention text":  {"EVENTS_RETENTION_DAYS", "abc"},
+		"ahead zero":      {"EVENTS_PARTITIONS_AHEAD", "0"},
+		"ahead too large": {"EVENTS_PARTITIONS_AHEAD", "31"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			clearEventsEnv(t)
+			t.Setenv(c[0], c[1])
+			if _, err := postgresEventsFromEnv(); err == nil {
+				t.Error("ожидалась ошибка")
+			}
+		})
 	}
 }
 

@@ -51,7 +51,7 @@ func NewRouter(d Deps) *gin.Engine {
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "ready"})
 	})
-	// /health/track — доступность приёмника событий (ClickHouse).
+	// /health/track — доступность активного хранилища событий (PostgreSQL по умолчанию, ClickHouse при EVENT_SINK=clickhouse).
 	router.GET("/health/track", d.Tracker.HandleHealth)
 	router.POST("/api/v1/tracker/events", d.Tracker.HandleTrack)
 

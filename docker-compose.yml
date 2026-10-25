@@ -1,7 +1,12 @@
+# Требуется Docker Compose >= 2.20 (include с env_file).
 include:
-  # .env.infra также используется для интерполяции ${...} в infra-compose (ZITADEL_*).
+  # infra/.env.infra — единственный источник секретов: им интерполируются ${...}
+  # и в infra-, и в apps-compose (пароли ролей БД, CLICKHOUSE_PASSWORD, POSTGRES_DB),
+  # поэтому в apps/.env.apps секретов БД нет.
   # Приоритет: переменные shell > корневой .env > infra/.env.infra.
   - path: infra/docker-compose.infra.yml
     env_file: infra/.env.infra
-  - apps/docker-compose.apps.yml
-  - nginx/docker-compose.yml
+  - path: apps/docker-compose.apps.yml
+    env_file: infra/.env.infra
+  - path: nginx/docker-compose.yml
+    env_file: infra/.env.infra

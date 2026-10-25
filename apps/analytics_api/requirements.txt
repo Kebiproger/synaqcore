@@ -2,3 +2,4 @@ fastapi[standard]
 pydantic-settings
 httpx
 PyJWT[crypto]>=2.8,<3
+asyncpg>=0.30,<0.33

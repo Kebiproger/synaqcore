@@ -13,7 +13,7 @@ SynaqCore Demo Simulator — сквозная демонстрация A/B-те�
      для каждого пользователя с ограничением частоты и повтором при 429.
   4. Отправляет события воронки (page_view → add_to_cart → checkout_start →
      purchase) в /api/v1/tracker/events с уникальными event_id, конкурентно.
-  5. Ждёт, пока события дойдут до ClickHouse (буфер synaq → async INSERT, асинхронно), и
+  5. Ждёт, пока события дойдут до хранилища событий (буфер synaq → пакетная запись, асинхронно), и
      печатает отчёт /api/v1/stats/<experiment>: конверсии, uplift, p-value,
      вероятность превосходства, рекомендации.
 
@@ -442,7 +442,7 @@ def build_plans(args: argparse.Namespace, user_ids: list[str], variants: dict[st
                 "timestamp": ts,
                 "experiment_name": args.experiment,
                 "variant": variant,
-                # Трекер и SDK передают event_data строкой JSON (колонка String в ClickHouse)
+                # Трекер и SDK передают event_data строкой JSON (так её принимает хранилище событий)
                 "event_data": json.dumps(data, ensure_ascii=False),
             })
             ts += rng.randint(1_000, 30_000)
@@ -558,7 +558,7 @@ def _total_users(stats: Optional[dict]) -> int:
 
 async def wait_for_stats(client: "httpx.AsyncClient", args: argparse.Namespace,
                          auth: dict[str, str], baseline: Optional[int]) -> Optional[dict]:
-    """Ждать, пока события дойдут до ClickHouse (асинхронная загрузка).
+    """Ждать, пока события дойдут до хранилища событий (асинхронная загрузка).
 
     baseline=None (объём старых данных неизвестен): ждём хотя бы args.users
     пользователей и, чтобы не принять старые данные за новые, ещё и того, что
@@ -575,7 +575,7 @@ async def wait_for_stats(client: "httpx.AsyncClient", args: argparse.Namespace,
         elif status >= 500:
             print(f"    /stats временно недоступен (HTTP {status}), повторяю")
         seen = _total_users(last)
-        print(f"    в ClickHouse пользователей: {seen}/{expected_users}"
+        print(f"    в хранилище событий пользователей: {seen}/{expected_users}"
               + (" (базовый объём неизвестен)" if baseline is None else ""))
         if seen >= expected_users and (baseline is not None or seen == previous):
             return last
@@ -707,12 +707,12 @@ async def run(args: argparse.Namespace, token: str) -> int:
         if ok == 0:
             raise DemoError("Ни одно событие не принято трекером")
 
-        print(f"\n[5/5] Ожидание данных в ClickHouse (до {args.stats_timeout:g} с)")
+        print(f"\n[5/5] Ожидание данных в хранилище событий (до {args.stats_timeout:g} с)")
         stats = await wait_for_stats(client, args, auth, baseline)
 
     if stats is None:
-        print("\nДанные в /stats так и не появились. Проверьте synaq/ClickHouse: "
-              "docker compose logs clickhouse synaq")
+        print("\nДанные в /stats так и не появились. Проверьте synaq и хранилище событий: "
+              "docker compose logs synaq analytics_api")
         return 1
     if baseline != 0:
         print("\nВнимание: отчёт может включать данные прошлых запусков; "

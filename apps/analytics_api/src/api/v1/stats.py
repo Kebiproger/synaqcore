@@ -4,7 +4,7 @@ Stats API — Единый эндпоинт для умного анализа A
 GET /api/v1/stats/{experiment_name}
 
 Этот эндпоинт полностью заменяет старый. Он делает всё:
-  1. ClickHouse собирает агрегаты (конверсии, ARPU, сегменты, воронку)
+  1. Хранилище событий собирает агрегаты (конверсии, ARPU, сегменты, воронку)
   2. Python считает статистику (p-value, CI, Bayesian P(B > A))
   3. Python генерирует бизнес-рекомендации на русском языке
 
@@ -16,6 +16,12 @@ GET /api/v1/stats/{experiment_name}
   - segments: сегменты через запятую (default: platform,user_tenure)
   - hide: что скрыть (статистика,бизнес,сегменты,воронка,выбросы,тренд)
   - monthly_traffic: трафик для масштабирования ARPU
+
+Хранилище событий выбирает EVENTS_BACKEND (src/services/events_backend.py):
+  - clickhouse — полный отчёт;
+  - postgres (по умолчанию) — тот же формат ответа плюс "backend": "postgres" и
+    "unsupported_sections": ["segmentation", "funnel", "outliers"];
+    segmentation = {}, funnel = null, outliers = null; явный segments= → 400.
 """
 
 import asyncio
@@ -27,14 +33,22 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.core.auth import require_roles
 
-# --- ClickHouse ---
-from src.services.clickhouse_aggregator import (
+# --- Хранилище событий (ClickHouse или Postgres, по EVENTS_BACKEND) ---
+from src.services.events_backend import (
+    CLICKHOUSE,
+    SEGMENTS_UNSUPPORTED_DETAIL,
+    current_backend,
     fetch_all_metrics,
     fetch_basic_stats,
+    supports,
+    unsupported_sections,
+)
+# Выбросы считаются только в ClickHouse (supports("outliers"))
+from src.services.clickhouse_aggregator import (
     fetch_outlier_data,
     fetch_user_event_counts,
-    _validate_experiment_name,
 )
+from src.services.validation import _validate_experiment_name
 
 # --- Анализаторы ---
 from src.services.analysis.statistical import StatisticalAnalyzer
@@ -85,7 +99,8 @@ async def analyze_experiment(
     experiment_name: str,
     method: str = Query("both", pattern="^(frequentist|bayesian|both)$"),
     goal_event: str = Query("purchase", min_length=1, max_length=50),
-    segments: str = Query("platform,user_tenure", max_length=300),
+    # None = не задан: ClickHouse берёт platform,user_tenure, Postgres сегменты не считает
+    segments: Optional[str] = Query(None, max_length=300),
     hide: str = Query("", max_length=300),
     monthly_traffic: Optional[int] = Query(None, ge=1),
 ):
@@ -109,15 +124,21 @@ async def analyze_experiment(
     _validate_experiment_name(experiment_name)
 
     hidden_sections = set(s.strip().lower() for s in hide.split(",") if s.strip())
-    segment_list = [s.strip() for s in segments.split(",") if s.strip()]
-    if not segment_list:
+    segment_list = [s.strip() for s in (segments or "").split(",") if s.strip()]
+    if not supports("segmentation"):
+        # Явно запрошенные сегменты молча не игнорируем: клиент должен знать,
+        # что их нет в этом режиме (пустое segments= запросом сегментов не считается)
+        if segment_list:
+            raise HTTPException(status_code=400, detail=SEGMENTS_UNSUPPORTED_DETAIL)
+        segment_list = []
+    elif not segment_list:
         segment_list = ["platform", "user_tenure"]
 
-    # ── 1. Сбор данных из ClickHouse ──
+    # ── 1. Сбор данных из хранилища событий ──
     aggregated = await fetch_all_metrics(
         experiment_name=experiment_name,
         goal_event=goal_event,
-        segments=segment_list,
+        segments=segment_list or None,
     )
 
     conversion_rows = aggregated.get("conversion_rates", [])
@@ -260,7 +281,7 @@ async def analyze_experiment(
 
     # ── 7. Воронка ──
     funnel_analysis = None
-    if "воронка" not in hidden_sections:
+    if "воронка" not in hidden_sections and supports("funnel"):
         funnel_rows = aggregated.get("funnel_metrics", [])
         if funnel_rows and not isinstance(funnel_rows, dict):
             funnel_input = _build_funnel_input(funnel_rows, variant_name, control_name)
@@ -269,7 +290,7 @@ async def analyze_experiment(
 
     # ── 8. Выбросы ──
     outlier_analysis = None
-    if "выбросы" not in hidden_sections:
+    if "выбросы" not in hidden_sections and supports("outliers"):
         # Два независимых блока: сбой одного не отменяет результат другого
         # По доходу
         try:
@@ -330,6 +351,12 @@ async def analyze_experiment(
         "recommendations": [r.to_dict() for r in recs],
         "statistical": stat_result.to_dict() if stat_result else {"error": stat_error},
     }
+
+    backend = current_backend()
+    if backend != CLICKHOUSE:
+        # В ClickHouse-режиме ответ прежний (без этих ключей)
+        response["backend"] = backend
+        response["unsupported_sections"] = unsupported_sections()
 
     if "бизнес" not in hidden_sections:
         response["business"] = {

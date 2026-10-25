@@ -1,5 +1,7 @@
 // Package sink описывает абстракцию приёмника событий трекинга.
-// Реализация: прямая запись в ClickHouse по HTTP (internal/sink/clickhouse).
+// Реализации: PostgreSQL (internal/sink/postgres, по умолчанию) и прямая запись
+// в ClickHouse по HTTP (internal/sink/clickhouse). Общая механика буфера, батчей
+// и повторов — internal/sink/batch.
 package sink
 
 import (

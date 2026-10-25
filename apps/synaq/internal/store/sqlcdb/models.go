@@ -7,7 +7,20 @@ package sqlcdb
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+type EventsTrackingEvent struct {
+	EventDate      pgtype.Date
+	Ts             time.Time
+	EventID        string
+	UserID         string
+	EventName      string
+	ExperimentName string
+	Variant        string
+	EventData      json.RawMessage
+}
 
 type Experiment struct {
 	Name      string

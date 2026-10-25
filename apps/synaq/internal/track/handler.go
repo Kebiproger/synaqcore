@@ -31,8 +31,9 @@ const (
 	MaxFutureSkew = 5 * time.Minute    // допуск на расхождение часов клиента
 )
 
-// TrackEvent — формат события. JSON-теги задают формат строки, записываемой в ClickHouse,
-// менять их нельзя без синхронного изменения ClickHouse-таблиц, MV и SDK.
+// TrackEvent — формат события. JSON-теги задают формат строки, записываемой в хранилище событий
+// (PostgreSQL events.tracking_events или ClickHouse tracking_events), менять их нельзя
+// без синхронного изменения таблиц обоих хранилищ, декодера приёмника и SDK.
 type TrackEvent struct {
 	EventID        string `json:"event_id"`
 	UserID         string `json:"user_id" binding:"required"`
@@ -137,7 +138,9 @@ func (h *Handler) HandleTrack(c *gin.Context) {
 		event.Timestamp = now.UnixMilli()
 	}
 
-	// event_id входит в ORDER BY ReplacingMergeTree (event_name, user_id, event_id, toDate(timestamp)).
+	// event_id участвует в дедупликации: в PostgreSQL это уникальный ключ секции
+	// (ON CONFLICT DO NOTHING), в ClickHouse — ORDER BY ReplacingMergeTree
+	// (event_name, user_id, event_id, toDate(timestamp)).
 	// С пустым event_id все одноимённые события пользователя за день схлопнулись бы в одно
 	// (например, две покупки), поэтому без идентификатора от клиента сервер генерирует UUIDv4.
 	if event.EventID == "" {

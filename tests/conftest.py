@@ -25,3 +25,10 @@ for _key, _value in _SYNTHETIC_ENV.items():
 # значения из .env / окружения разработчика не должны просачиваться.
 for _key in ("OIDC_ISSUER", "OIDC_JWKS_URL", "OIDC_JWKS_HOST", "OIDC_CONFIG_FILE", "OIDC_AUDIENCE"):
     os.environ[_key] = ""
+
+# Существующие тесты роутера рассчитаны на полный (ClickHouse) отчёт; Postgres-режим
+# тесты включают сами через monkeypatch settings.EVENTS_BACKEND. Пароля БД нет:
+# пул asyncpg в юнит-тестах не создаётся.
+os.environ["EVENTS_BACKEND"] = "clickhouse"
+for _key in ("EVENTS_PG_DB", "EVENTS_PG_PASSWORD"):
+    os.environ[_key] = ""

@@ -1,5 +1,8 @@
-# Smoke-стенд Go-сервиса synaq (apps/synaq): synaq + Postgres + ClickHouse
-# (только 01-tables.sql, lite-режим) + статический JWKS. Только для тестов.
+# Smoke-стенд Go-сервиса synaq (apps/synaq): synaq + Postgres + статический JWKS.
+# По умолчанию события пишутся в Postgres (SMOKE_EVENT_SINK=postgres, как в боевом
+# lite-стеке: роли создаёт тот же infra/postgres-app/init-roles.sh). ClickHouse
+# (только 01-tables.sql) поднимается в профиле clickhouse: run.sh добавляет
+# `--profile clickhouse` при SMOKE_EVENT_SINK=clickhouse. Только для тестов.
 #
 # ВНИМАНИЕ: все пароли ниже — СИНТЕТИЧЕСКИЕ ТЕСТОВЫЕ значения одноразового стенда
 # (Postgres/ClickHouse без внешних портов, данные в tmpfs, `down -v`). Это не секреты
@@ -34,7 +37,7 @@ services:
       timeout: 2s
       retries: 15
 
-  # ─────────── Go synaq ───────────
+  # ─────────── Postgres ───────────
   pg:
     image: postgres:16-alpine
     environment:
@@ -49,8 +52,33 @@ services:
       timeout: 2s
       retries: 30
 
+  # Роли synaq_app / synaq_analytics: тот же скрипт, что в боевом стеке (postgres-app-init)
+  pg-init:
+    image: postgres:16-alpine
+    user: "70:70"
+    entrypoint: ["/bin/sh", "/init-roles.sh"]
+    environment:
+      PGHOST: pg
+      PGUSER: contract_test
+      PGPASSWORD: contract_test_password  # синтетический тестовый пароль
+      PGDATABASE: synaq_smoke
+      PGCONNECT_TIMEOUT: "10"
+      # Синтетические пароли ролей (>=16 символов и разные — требует init-roles.sh)
+      SYNAQ_DB_PASSWORD: contract-synaq-app-password-0001
+      ANALYTICS_DB_PASSWORD: contract-analytics-password-0002
+    volumes:
+      - ../../infra/postgres-app/init-roles.sh:/init-roles.sh:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [contract_net]
+    depends_on:
+      pg: {condition: service_healthy}
+    restart: "no"
+
   clickhouse:
     image: clickhouse/clickhouse-server:24.8
+    profiles: [clickhouse]
     environment:
       CLICKHOUSE_USER: contract_test
       CLICKHOUSE_PASSWORD: contract_test_password  # синтетический тестовый пароль
@@ -74,16 +102,17 @@ services:
       <<: *test-oidc
       POSTGRES_HOST: pg
       POSTGRES_PORT: "5432"
-      POSTGRES_USER: contract_test
-      POSTGRES_PASSWORD: contract_test_password  # синтетический тестовый пароль
+      POSTGRES_USER: synaq_app
+      POSTGRES_PASSWORD: contract-synaq-app-password-0001  # синтетический тестовый пароль
       POSTGRES_DB: synaq_smoke
-      EVENT_SINK: clickhouse
+      EVENT_SINK: ${SMOKE_EVENT_SINK:-postgres}
       CLICKHOUSE_URL: http://clickhouse:8123
       CLICKHOUSE_USER: contract_test
       CLICKHOUSE_PASSWORD: contract_test_password  # синтетический тестовый пароль
     depends_on:
       pg: {condition: service_healthy}
-      clickhouse: {condition: service_healthy}
+      pg-init: {condition: service_completed_successfully}
+      clickhouse: {condition: service_healthy, required: false}
       jwks: {condition: service_healthy}
     ports:
       - "127.0.0.1:${SYNAQ_PORT:-18002}:8000"

@@ -2,7 +2,7 @@
 // по HTTP-интерфейсу (без брокера сообщений).
 //
 // События копятся в ограниченном буфере и отправляются фоновым горутином батчами
-// (по размеру или по таймеру) запросом INSERT ... FORMAT JSONEachRow. Строка батча —
+// (по размеру или по таймеру; общая механика — пакет internal/sink/batch) запросом INSERT ... FORMAT JSONEachRow. Строка батча —
 // JSON-сериализация track.TrackEvent, её поля совпадают со столбцами tracking_events.
 package clickhouse
 
@@ -12,15 +12,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"synaq/internal/sink"
+	"synaq/internal/sink/batch"
 )
 
 // Проверка на этапе компиляции: Producer реализует sink.Producer и sink.Pinger.
@@ -41,10 +39,10 @@ const (
 	DefaultBatchSize        = 1000
 	DefaultFlushInterval    = time.Second
 	DefaultHTTPTimeout      = 10 * time.Second
-	DefaultMaxAttempts      = 5
-	DefaultRetryBaseDelay   = 200 * time.Millisecond
-	DefaultRetryMaxDelay    = 3 * time.Second
-	DefaultCloseTimeout     = 5 * time.Second
+	DefaultMaxAttempts      = batch.DefaultMaxAttempts
+	DefaultRetryBaseDelay   = batch.DefaultRetryBaseDelay
+	DefaultRetryMaxDelay    = batch.DefaultRetryMaxDelay
+	DefaultCloseTimeout     = batch.DefaultCloseTimeout
 )
 
 // Максимум байт тела ответа, который читается (ping) или разбирается в поисках кода ошибки.
@@ -103,32 +101,13 @@ func (c *Config) setDefaults() {
 	}
 }
 
-type item struct {
-	payload []byte
-	onDone  func(error)
-}
-
-// Producer пишет события в ClickHouse батчами.
+// Producer пишет события в ClickHouse батчами (очередь и повторы — в пакете batch).
 type Producer struct {
 	cfg       Config
 	client    *http.Client
 	insertURL string
 	pingURL   string
-
-	mu     sync.RWMutex // защищает closed и закрытие queue
-	closed bool
-	queue  chan item
-
-	// bufferedBytes — размер событий, принятых PublishAsync и ещё не записанных
-	// (в очереди или в отправляемом батче).
-	bufferedBytes atomic.Int64
-
-	// stopCtx отменяется, если Close не уложился в CloseTimeout: прерывает повторы.
-	stopCtx    context.Context
-	stopCancel context.CancelFunc
-	done       chan struct{} // закрывается, когда фоновый горутин завершился
-	closeOnce  sync.Once
-	closeErr   error
+	batcher   *batch.Batcher
 }
 
 // New создаёт продюсер и запускает фоновую отправку. Доступность ClickHouse
@@ -173,18 +152,23 @@ func New(cfg Config) (*Producer, error) {
 		client = &http.Client{Timeout: cfg.HTTPTimeout}
 	}
 
-	stopCtx, stopCancel := context.WithCancel(context.Background())
 	p := &Producer{
-		cfg:        cfg,
-		client:     client,
-		insertURL:  base.String() + "/?" + params.Encode(),
-		pingURL:    base.String() + "/ping",
-		queue:      make(chan item, cfg.BufferSize),
-		stopCtx:    stopCtx,
-		stopCancel: stopCancel,
-		done:       make(chan struct{}),
+		cfg:       cfg,
+		client:    client,
+		insertURL: base.String() + "/?" + params.Encode(),
+		pingURL:   base.String() + "/ping",
 	}
-	go p.run()
+	p.batcher = batch.New(batch.Config{
+		Name:             "ClickHouse",
+		BufferSize:       cfg.BufferSize,
+		MaxBufferedBytes: cfg.MaxBufferedBytes,
+		BatchSize:        cfg.BatchSize,
+		FlushInterval:    cfg.FlushInterval,
+		MaxAttempts:      cfg.MaxAttempts,
+		RetryBaseDelay:   cfg.RetryBaseDelay,
+		RetryMaxDelay:    cfg.RetryMaxDelay,
+		CloseTimeout:     cfg.CloseTimeout,
+	}, p.write)
 	return p, nil
 }
 
@@ -193,35 +177,7 @@ func New(cfg Config) (*Producer, error) {
 // Аргументы ctx, topic и key не используются. payload должен быть одной JSON-строкой
 // без переводов строк (результат json.Marshal).
 func (p *Producer) PublishAsync(_ context.Context, _ string, _, payload []byte, onDone func(error)) error {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	if p.closed {
-		return sink.ErrClosed
-	}
-	if !p.reserve(int64(len(payload))) {
-		return sink.ErrBufferFull
-	}
-	select {
-	case p.queue <- item{payload: payload, onDone: onDone}:
-		return nil
-	default:
-		p.bufferedBytes.Add(-int64(len(payload)))
-		return sink.ErrBufferFull
-	}
-}
-
-// reserve учитывает size байт в лимите MaxBufferedBytes; false, если лимит исчерпан.
-func (p *Producer) reserve(size int64) bool {
-	limit := int64(p.cfg.MaxBufferedBytes)
-	for {
-		cur := p.bufferedBytes.Load()
-		if cur+size > limit {
-			return false
-		}
-		if p.bufferedBytes.CompareAndSwap(cur, cur+size) {
-			return true
-		}
-	}
+	return p.batcher.Enqueue(payload, onDone)
 }
 
 // Publish ставит событие в очередь и ждёт результата записи его батча.
@@ -260,114 +216,23 @@ func (p *Producer) Ping(ctx context.Context) error {
 // не дольше CloseTimeout. Если время вышло, повторы прерываются, а события,
 // которые не удалось записать, получают ошибку в onDone. Повторный вызов безопасен.
 func (p *Producer) Close() error {
-	p.closeOnce.Do(func() {
-		p.mu.Lock()
-		p.closed = true
-		close(p.queue)
-		p.mu.Unlock()
-
-		timer := time.NewTimer(p.cfg.CloseTimeout)
-		defer timer.Stop()
-		select {
-		case <-p.done:
-		case <-timer.C:
-			p.stopCancel()
-			<-p.done
-			p.closeErr = fmt.Errorf("не удалось отправить все события в ClickHouse за %v", p.cfg.CloseTimeout)
-		}
-		p.stopCancel()
-	})
-	return p.closeErr
+	return p.batcher.Close()
 }
 
-// run — фоновый цикл: копит батч и отправляет его по размеру или по таймеру.
-func (p *Producer) run() {
-	defer close(p.done)
-
-	ticker := time.NewTicker(p.cfg.FlushInterval)
-	defer ticker.Stop()
-
-	batch := make([]item, 0, p.cfg.BatchSize)
-	flush := func() {
-		if len(batch) == 0 {
-			return
-		}
-		p.flush(batch)
-		batch = make([]item, 0, p.cfg.BatchSize)
-	}
-
-	for {
-		select {
-		case it, ok := <-p.queue:
-			if !ok {
-				flush()
-				return
-			}
-			batch = append(batch, it)
-			if len(batch) >= p.cfg.BatchSize {
-				flush()
-				ticker.Reset(p.cfg.FlushInterval)
-			}
-		case <-ticker.C:
-			flush()
-		}
-	}
-}
-
-// flush отправляет батч с повторами и сообщает результат каждому событию.
-func (p *Producer) flush(batch []item) {
+// write — batch.Writer: собирает тело JSONEachRow (одна строка на событие) и выполняет INSERT.
+func (p *Producer) write(ctx context.Context, payloads [][]byte) (bool, error) {
 	var body bytes.Buffer
-	var size int64
-	for _, it := range batch {
-		body.Write(it.payload)
+	for _, pl := range payloads {
+		body.Write(pl)
 		body.WriteByte('\n')
-		size += int64(len(it.payload))
 	}
-	// Место в лимите освобождается после записи батча (успешной или окончательно неудачной).
-	defer p.bufferedBytes.Add(-size)
-
-	err := p.sendWithRetry(body.Bytes())
-	if err != nil {
-		log.Printf("Не удалось записать в ClickHouse батч из %d событий: %v", len(batch), err)
-	}
-	for _, it := range batch {
-		if it.onDone != nil {
-			it.onDone(err)
-		}
-	}
-}
-
-func (p *Producer) sendWithRetry(body []byte) error {
-	delay := p.cfg.RetryBaseDelay
-	var err error
-	for attempt := 1; attempt <= p.cfg.MaxAttempts; attempt++ {
-		var retryable bool
-		retryable, err = p.send(body)
-		if err == nil {
-			return nil
-		}
-		if !retryable || attempt == p.cfg.MaxAttempts {
-			break
-		}
-		log.Printf("Ошибка записи в ClickHouse (попытка %d из %d), повтор через %v: %v",
-			attempt, p.cfg.MaxAttempts, delay, err)
-
-		timer := time.NewTimer(delay)
-		select {
-		case <-timer.C:
-		case <-p.stopCtx.Done():
-			timer.Stop()
-			return fmt.Errorf("отправка прервана при остановке: %w", err)
-		}
-		delay = min(delay*2, p.cfg.RetryMaxDelay)
-	}
-	return err
+	return p.send(ctx, body.Bytes())
 }
 
 // send выполняет один INSERT. retryable сообщает, имеет ли смысл повторять запрос:
 // сетевые ошибки, 5xx и 429 повторяются, остальные 4xx (ошибка данных или прав) — нет.
-func (p *Producer) send(body []byte) (retryable bool, err error) {
-	req, err := http.NewRequestWithContext(p.stopCtx, http.MethodPost, p.insertURL, bytes.NewReader(body))
+func (p *Producer) send(ctx context.Context, body []byte) (retryable bool, err error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.insertURL, bytes.NewReader(body))
 	if err != nil {
 		return false, err
 	}
