@@ -1,7 +1,8 @@
 # Архитектура системы SynaqCore (lite)
 
-Описание архитектуры платформы A/B/n-тестирования для ветки `lite`: один VPS, 2 vCPU / 4 ГБ. Обоснование
-решений — в [ADR 0002](adr/0002-lite-go-monolith.md). Предыдущая распределённая схема (Python `experiment_api` +
+Описание архитектуры платформы A/B/n-тестирования: один VPS, 2 vCPU / 2 ГБ (профиль `scale` с ClickHouse — от
+4 ГБ). Обоснование решений — в [ADR 0002](adr/0002-lite-go-monolith.md) и
+[ADR 0003](adr/0003-postgres-default-event-store.md) (события в Postgres по умолчанию). Предыдущая распределённая схема (Python `experiment_api` +
 Redis, Go-трекер → Redpanda → ClickHouse Kafka engine) доступна по тегу `v1-python`.
 
 ---
@@ -9,13 +10,16 @@ Redis, Go-трекер → Redpanda → ClickHouse Kafka engine) доступн�
 ## 1. Обзор архитектуры
 
 - **`synaq` (Go)** — один процесс на горячем пути: выдача вариантов из снимка конфигураций в памяти, admin API
-  экспериментов (JWT Zitadel) и приём событий с батчевой записью напрямую в ClickHouse.
-- **`analytics_api` (Python)** — статистика по ClickHouse, отдельный сервис (bulkhead): тяжёлые запросы не
+  экспериментов (JWT Zitadel) и приём событий с батчевой записью в хранилище событий.
+- **`analytics_api` (Python)** — статистика по хранилищу событий, отдельный сервис (bulkhead): тяжёлые запросы не
   отнимают CPU у выдачи вариантов.
-- **Хранилища:** `postgres-app` (эксперименты, источник истины), ClickHouse (события), `postgres-zitadel`
-  (только IdP). Redis и брокера сообщений нет.
+- **Хранилища:** `postgres-app` (эксперименты — схема `public`, источник истины; сырые события — схема `events`),
+  `postgres-zitadel` (только IdP). ClickHouse (события) — только в профиле compose `scale`. Redis и брокера
+  сообщений нет.
 
-Целевые цифры производительности на эталонном стенде не измерялись; ориентир — ~1–2 тыс. событий/с.
+Ориентир по нагрузке — **до ~100 событий/с в пике** (в среднем на порядок меньше). Производительность на
+эталонном стенде не измерялась; измерен только размер данных на диске (см.
+[README](../README.md#сколько-места-займут-события)).
 
 ```mermaid
 flowchart TD
@@ -32,10 +36,12 @@ flowchart TD
     GW --> VAR & ADM & TRK
     ADM -->|"SQL"| PGA[("postgres-app")]
     PGA -->|"NOTIFY experiments_changed<br/>+ перечитывание раз в 30 с"| SNAP
-    BUF -->|"INSERT ... JSONEachRow батчами"| CH[("ClickHouse<br/>tracking_events")]
+    BUF -->|"INSERT ... unnest() батчами<br/>отдельный пул, роль synaq_app"| EV[("postgres-app<br/>схема events")]
+    BUF -.->|"профиль scale: INSERT JSONEachRow"| CH[("ClickHouse<br/>tracking_events")]
 
     GW -->|"/api/v1/stats/ (JWT)"| AN["analytics_api (Python)"]
-    AN --> CH
+    AN -->|"чтение, роль synaq_analytics"| EV
+    AN -.->|"профиль scale"| CH
     GW -->|"/dashboard/"| DASH["dashboard (SPA)"]
     GW -->|":8081"| IDP["Zitadel"]
     IDP --> PGZ[("postgres-zitadel")]
@@ -49,10 +55,11 @@ flowchart TD
 
 | Компонент | Стек | Роль |
 | :--- | :--- | :--- |
-| **synaq** | Go (Gin, pgx, sqlc, goose) | Выдача вариантов (`/api/v1/variants/{name}`, `/batch`, `/active`, `/config/{name}`, `/eval-configs`) из снимка в памяти; CRUD экспериментов; приём событий (валидация, генерация `event_id`, батчевый INSERT в ClickHouse). Миграции Postgres применяются при старте. `/health` — процесс жив, `/readyz` — снимок загружен, `/health/track` — ClickHouse доступен. |
-| **postgres-app** | PostgreSQL 16 | Таблица `experiments`, триггер `pg_notify('experiments_changed', ...)`. |
-| **ClickHouse** | 24.8, `ReplacingMergeTree` | Хранение событий (`01-tables.sql`), агрегации для статистики; дедупликация по `event_id`. Конфиг урезан под малую память (`infra/clickhouse/config.d`, `users.d`). |
-| **analytics_api** | Python (FastAPI) | `/api/v1/stats/`: z-тест, интервалы Уилсона, байесовский Монте-Карло, бизнес-метрики, сегменты, воронки. Движок без scipy/numpy. |
+| **synaq** | Go (Gin, pgx, sqlc, goose) | Выдача вариантов (`/api/v1/variants/{name}`, `/batch`, `/active`, `/config/{name}`, `/eval-configs`) из снимка в памяти; CRUD экспериментов; приём событий (валидация, генерация `event_id`, батчевый INSERT в хранилище событий) и обслуживание партиций `events` (`internal/eventstore`). Миграции Postgres применяются при старте. `/health` — процесс жив, `/readyz` — снимок загружен, `/health/track` — хранилище событий доступно. |
+| **postgres-app** | PostgreSQL 16 | Схема `public`: таблица `experiments`, триггер `pg_notify('experiments_changed', ...)`. Схема `events`: `tracking_events`, суточные партиции, ключ дедупликации `(event_id, user_id, event_name, event_date)`. Роли `synaq_app` (владелец) и `synaq_analytics` (чтение `events`). |
+| **postgres-app-init** | postgres:16-alpine, одноразовый | `infra/postgres-app/init-roles.sh`: идемпотентно создаёт роли и передаёт им объекты на каждом `up`. Единственный (кроме самого `postgres-app`) контейнер с учёткой суперпользователя. |
+| **ClickHouse** (профиль `scale`) | 24.8, `ReplacingMergeTree` | Хранение событий (`01-tables.sql`) и агрегации при `EVENT_STORE=clickhouse`; дедупликация по `event_id` при слияниях. Конфиг урезан под малую память (`infra/clickhouse/config.d`, `users.d`). |
+| **analytics_api** | Python (FastAPI) | `/api/v1/stats/`: z-тест, интервалы Уилсона, байесовский Монте-Карло, бизнес-метрики. Сегменты и воронки — только при `EVENTS_BACKEND=clickhouse`. Движок без scipy/numpy. |
 | **dashboard** | React + Vite + Tailwind (nginx-unprivileged) | SPA управления экспериментами и просмотра результатов, `/dashboard/`. |
 | **Zitadel** + **postgres-zitadel** | Go, OIDC/OAuth2 | IdP: вход пользователей, JWT, роли `admin` / `analyst`. Собственный Postgres, отдельный от бизнес-данных. |
 | **gateway** | nginx | Единственная точка входа, маршрутизация по префиксу, `limit_req`, CORS, раздача `/sdk/`. |
@@ -70,13 +77,22 @@ flowchart TD
    заменяется после записи через admin API (read-your-writes), по `LISTEN experiments_changed` (дебаунс 50 мс),
    раз в 30 с полностью и после переподключения слушателя. Ошибка чтения из БД → раздаётся прежний снимок.
    Gateway стартует только после `/readyz` synaq (снимок загружен).
-3. **Ограниченный буфер и backpressure.** Трекер отвечает `200` после постановки события в буфер (по умолчанию
-   10 000 событий и 64 МиБ). Батчи по 1000 событий или раз в секунду, до 5 попыток записи, затем батч
-   отбрасывается с логом. Буфер полон → `503` + `Retry-After: 1`, без блокировки и без роста памяти до OOM.
-   ClickHouse не нужен для старта: при его недоступности synaq только логирует предупреждение, выдача вариантов
-   и admin API работают, а `/health/track` показывает состояние приёмника.
+3. **Ограниченный буфер и backpressure.** Трекер отвечает `200` после постановки события в буфер (Postgres:
+   10 000 событий и 32 МиБ, ClickHouse: 10 000 и 64 МиБ). Батчи по 500 (Postgres) или 1000 (ClickHouse) событий
+   либо раз в секунду, до 5 попыток записи, затем батч отбрасывается с логом. Буфер полон → `503` +
+   `Retry-After: 1`, без блокировки и без роста памяти до OOM. Общая механика — `internal/sink/batch`. Запись
+   в Postgres идёт через отдельный пул (по умолчанию 2 соединения) с `synchronous_commit=off`: при падении
+   сервера БД теряется порядка последней секунды принятых событий. ClickHouse в профиле `scale` не нужен для
+   старта: при его недоступности synaq только логирует предупреждение, выдача вариантов и admin API работают,
+   а `/health/track` показывает состояние приёмника.
 4. **Окно timestamp.** События принимаются только в окне [сейчас − 7 дней, сейчас + 5 минут]: иначе одна вставка
-   могла задеть слишком много месячных партиций, и ClickHouse отклонил бы весь батч.
+   могла задеть слишком много партиций (в ClickHouse — месячных, и он отклонил бы весь батч; в Postgres —
+   суточных, которые synaq создаёт только в окне сегодня−7 .. сегодня+`EVENTS_PARTITIONS_AHEAD`).
+   **Партиции Postgres** ведёт сам synaq (без pg_partman): создаёт недостающие и удаляет партиции старше
+   `EVENTS_RETENTION_DAYS` (по умолчанию 90, минимум 8) при старте, раз в час и при ошибке вставки `23514`, под
+   `pg_try_advisory_lock`. Окно приёма покрыто партициями, пока обслуживание исправно; если создать их не удаётся
+   (lock занят другой репликой, БД недоступна), приёмник повторяет батч, а после исчерпания повторов отбрасывает
+   его с записью в лог. **Дедупликация** — первичным ключом (`ON CONFLICT DO NOTHING`, остаётся первая строка).
 5. **Лимиты на входе.** Gateway: `/api/v1/variants/` — 50 r/s с IP (burst 100), `/api/v1/tracker/` — 200 r/s
    (burst 400), сверх — `429`. Трекер: тело ≤ 64 КБ (`413`), строки ≤ 256 символов, `event_data` ≤ 16 КБ (`400`).
    HTTP-сервер synaq с полными таймаутами чтения/записи (защита от slowloris).
@@ -85,10 +101,14 @@ flowchart TD
    эксперимента → `409`.
 7. **Bulkhead для аналитики.** Статистика вынесена в `analytics_api`, Монте-Карло — в `asyncio.to_thread`.
 8. **Валидация параметров SQL.** Всё, что подставляется в запросы ClickHouse, проверяется (regex, экранирование,
-   whitelist, целые числа); тексты ошибок ClickHouse только логируются. В synaq SQL к Postgres — только
-   параметризованные запросы (sqlc), имя таблицы ClickHouse в `INSERT` зашито в код.
-9. **Бюджет памяти.** У каждого контейнера `mem_limit` (сумма долгоживущих ~3.4 ГБ), Go-процессам задан
-   `GOMEMLIMIT` ниже лимита.
+   whitelist, целые числа); тексты ошибок ClickHouse только логируются. SQL к Postgres (synaq и Postgres-режим
+   `analytics_api`) — только параметризованные запросы; имена таблиц в `INSERT` зашиты в код.
+9. **Права по минимуму.** `synaq` работает под ролью `synaq_app` (при подключении суперпользователем пишет
+   предупреждение в лог), `analytics_api` — под `synaq_analytics`: только чтение `events`,
+   `default_transaction_read_only`, `statement_timeout=15s`, `CONNECTION LIMIT 6`.
+10. **Бюджет памяти.** У каждого контейнера `mem_limit`: долгоживущие сервисы стека по умолчанию — 1696 МБ
+    (`postgres-app` 448, `zitadel` 448, `analytics_api` 320, `postgres-zitadel` 192, `synaq` 160, `gateway` 64,
+    `dashboard` 64), с профилем `scale` (+ `clickhouse` 1536) — ≈ 3.2 ГБ. Go-процессам задан `GOMEMLIMIT` ниже лимита.
 
 ---
 
@@ -128,5 +148,6 @@ flowchart TD
 ## 6. Решения
 
 - [ADR 0002: lite — Go-монолит synaq на одном VPS](adr/0002-lite-go-monolith.md)
+- [ADR 0003: события в Postgres по умолчанию, ClickHouse — профиль `scale`](adr/0003-postgres-default-event-store.md)
 - [ADR 0001: Kafka (Redpanda) как брокер событий](adr/0001-kafka-vs-rabbitmq.md) — Python-версия и будущий профиль `scale`
-- Приём событий и устройство ClickHouse: [clickhouse-kafka/README.md](clickhouse-kafka/README.md)
+- Профиль `scale`: ClickHouse и (позже) Kafka: [clickhouse-kafka/README.md](clickhouse-kafka/README.md)

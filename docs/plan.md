@@ -21,7 +21,8 @@
 | **ПРИОРИТЕТ 7 (P1/P2)** | **High-Load Server-Side SDK с Local Evaluation (завершён)** | Математика детерминированного хеширования (SHA-256), отказоустойчивость | Реализация Python и Go SDK, фоновый воркер синхронизации экспериментов |
 | **ПРИОРИТЕТ 8 (P2)** | **Публичная документация API и мониторинг (планируется)** | Стандарты API-контрактов и SLA метрики шлюза | Swagger UI (`/docs`) в Nginx, экспорт Prometheus-метрик (`/metrics`) |
 | **ПРИОРИТЕТ 9 (P1)** | **Lite-вариант для одного VPS (завершён)** | Компромиссы без Kafka и Redis, модель обновления конфигов | Go-монолит (варианты + трекер + admin API), прямая запись в ClickHouse |
-| **ПРИОРИТЕТ 10 (P1)** | **Эксплуатация lite и профиль `scale` (планируется)** | Модель надёжности без брокера, TLS, бэкапы | Дисковый spool, `/metrics` + Grafana, Caddy, установщик, профиль с Kafka |
+| **ПРИОРИТЕТ 10 (P1)** | **Postgres как хранилище событий по умолчанию (завершён)** | Бюджет 2 ГБ, потеря ~1 с при `synchronous_commit=off`, дедупликация ключом, права ролей | Приёмник и партиции в Go, роли БД, Postgres-агрегатор, профиль `scale`, тесты и CI |
+| **ПРИОРИТЕТ 11 (P1)** | **Эксплуатация и профиль `scale` с Kafka (планируется)** | Модель надёжности без брокера, TLS, бэкапы | Дисковый spool, `/metrics` + Grafana, Caddy, установщик, профиль с Kafka |
 
 ---
 
@@ -203,20 +204,57 @@
 - [x] **9.2. Прямая запись событий в ClickHouse:** `apps/synaq/internal/sink/clickhouse` — ограниченный буфер (`CH_BUFFER_SIZE`, `CH_MAX_BUFFERED_BYTES`), батчи `INSERT ... FORMAT JSONEachRow` (`CH_BATCH_SIZE`, `CH_FLUSH_INTERVAL`), ретраи с backoff. В ClickHouse только `01-tables.sql`.
 - [x] **9.3. Go-монолит `apps/synaq`:** выдача вариантов + трекер + admin API (JWT Zitadel), HTTP-контракт Python-версии (smoke-набор `tests/contract`, `make smoke`), строгие типы и `422` в формате FastAPI. Распределение — golden-векторы Python-сервера.
 - [x] **9.4. Конфиги в памяти:** снимок из Postgres, обновление по `LISTEN/NOTIFY` и полное перечитывание раз в 30 с, `/readyz`.
-- [x] **9.5. Compose для lite:** gateway, synaq, `analytics_api`, ClickHouse (low-memory), два Postgres, Zitadel, дашборд; `mem_limit` ~3.4 ГБ.
+- [x] **9.5. Compose для lite:** gateway, synaq, `analytics_api`, ClickHouse (low-memory), два Postgres, Zitadel, дашборд; `mem_limit` ~3.4 ГБ (позже сокращено до ≈ 1.7 ГБ без ClickHouse — приоритет 10).
 - [x] **9.6. Вывод Python `experiment_api` из ветки:** код удалён, доступен по тегу `v1-python`; CI, Dependabot и тесты без него.
 
 ---
 
-## ПРИОРИТЕТ 10: Эксплуатация lite и профиль `scale` (планируется)
+## ПРИОРИТЕТ 10: Postgres как хранилище событий по умолчанию (завершён)
+*Ожидаемая нагрузка — до ~100 событий/с в пике, стек по умолчанию должен помещаться в VPS на 2 ГБ. Решение — [ADR 0003](adr/0003-postgres-default-event-store.md).*
 
-- [ ] **10.1. Дисковый spool** для буфера трекера: события переживают рестарт и долгую недоступность ClickHouse.
-- [ ] **10.2. Реплики synaq** за gateway (каждая держит свой снимок и слушает `NOTIFY`).
-- [ ] **10.3. `/metrics` + профиль Grafana**: RPS, latency, `503` по переполнению буфера, отброшенные батчи, возраст снимка.
-- [ ] **10.4. Caddy с auto-TLS** и Zitadel на `auth.<domain>` вместо отдельного порта.
-- [ ] **10.5. Установка одной командой** (генерация секретов `.env`, проверка ресурсов).
-- [ ] **10.6. Бэкап и восстановление** `postgres-app`, `postgres-zitadel` и ClickHouse.
-- [ ] **10.7. Профиль `scale`**: Kafka/Redpanda как долговременный буфер в той же кодовой базе (продюсер за `sink.Producer`, ClickHouse Kafka engine + MV по [ADR 0001](adr/0001-kafka-vs-rabbitmq.md)).
+### Твоя зона:
+- [x] **10.1. Решение и компромиссы:** Postgres по умолчанию, ClickHouse — профиль `scale`; сырые события с суточными партициями; дедупликация ключом `(event_id, user_id, event_name, UTC-день)`, побеждает первая строка; `synchronous_commit=off` (потеря порядка секунды принятых событий при сбое сервера БД); без миграции данных ClickHouse → Postgres.
+- [x] **10.2. Права по минимуму:** роли `synaq_app` (владелец схем) и `synaq_analytics` (только чтение `events`, `statement_timeout=15s`), одноразовый идемпотентный `postgres-app-init`.
+
+### Зона ИИ:
+- [x] **10.3. Миграция `00003_events.sql`** и пакет `internal/eventstore`: партиции создаются и удаляются synaq (`EVENTS_RETENTION_DAYS` = 90, минимум 8; `EVENTS_PARTITIONS_AHEAD`), без pg_partman.
+- [x] **10.4. Приёмник событий Postgres** (`internal/sink/postgres`) на общей механике `internal/sink/batch`: отдельный пул pgx, `INSERT ... SELECT FROM unnest(...) ON CONFLICT DO NOTHING`.
+- [x] **10.5. `analytics_api`:** `EVENTS_BACKEND=postgres|clickhouse`, `postgres_aggregator.py`; в Postgres-режиме без сегментов, воронки и выбросов (`unsupported_sections`, явный `segments=` → `400`).
+- [x] **10.6. Compose и Makefile:** ClickHouse в профиле `scale` (`make up-scale`), `make check-db-passwords`, `make smoke-ch`; бюджет `mem_limit` долгоживущих сервисов ≈ 1.7 ГБ; нужен Compose ≥ 2.20.
+- [x] **10.7. Тесты и CI:** smoke-набор на обоих хранилищах (`make smoke`, `make smoke-ch`), Go-интеграционные тесты и паритетный тест Postgres-агрегатора на сервисе `postgres:16-alpine` в CI.
+- [x] **10.8. Документация:** README, ADR 0003, оценка диска по измерению (≈ 415–509 байт на событие вместе с индексами).
+- [ ] **10.9. Сегменты и воронка поверх Postgres** — пока только в профиле `scale`.
+
+---
+
+## ПРИОРИТЕТ 11: Эксплуатация и профиль `scale` с Kafka (планируется)
+
+- [ ] **11.1. Дисковый spool** для буфера трекера: события переживают рестарт и долгую недоступность хранилища (закрывает и потерю ~1 с при `synchronous_commit=off`).
+- [ ] **11.2. Реплики synaq** за gateway (каждая держит свой снимок и слушает `NOTIFY`; обслуживание партиций уже под advisory-lock).
+- [ ] **11.3. `/metrics` + профиль Grafana**: RPS, latency, `503` по переполнению буфера, отброшенные батчи, возраст снимка.
+- [ ] **11.4. Caddy с auto-TLS** и Zitadel на `auth.<domain>` вместо отдельного порта.
+- [ ] **11.5. Установка одной командой** (генерация секретов `.env`, включая `SYNAQ_DB_PASSWORD` / `ANALYTICS_DB_PASSWORD`, проверка ресурсов).
+- [ ] **11.6. Бэкап и восстановление** `postgres-app` (включая `events`), `postgres-zitadel` и ClickHouse (для `scale`).
+- [ ] **11.7. Профиль `scale` с Kafka**: Kafka/Redpanda как долговременный буфер перед ClickHouse в той же кодовой базе (продюсер за `sink.Producer`, ClickHouse Kafka engine + MV по [ADR 0001](adr/0001-kafka-vs-rabbitmq.md)).
+
+---
+
+## Известные ограничения
+
+Отложенные пункты (проект заморожен как портфолио-снимок, см. [SESSION_CONTEXT.md](SESSION_CONTEXT.md)):
+
+- **M-A:** advisory-lock функции доступны PUBLIC: сделать `REVOKE EXECUTE` на `pg_advisory_lock*` / `pg_try_advisory_lock*` у PUBLIC и выдать `synaq_app`.
+- **M-C:** диск можно заполнить через публичный трекер; хранение по умолчанию 90 дней, стоит рассмотреть 30.
+- **L1:** ограничить число удаляемых партиций за один проход до 2-3.
+- **L2:** отозвать функции `lo_*` и зафиксировать `search_path`.
+- **L3:** `REVOKE CONNECT, TEMP` на `postgres` / `template1` у PUBLIC.
+- **L4:** отклонять числа в `event_data` с огромными экспонентами.
+- **L5:** передавать `CLICKHOUSE_*` в контейнеры только при `EVENT_STORE=clickhouse`.
+- **L6:** ограничить `PG_EVENTS_MAX_CONNS` сверху значением 8.
+- **`EVENT_STORE=clickhouse` не «липкий»:** без переменной `make up` вернётся на Postgres; описать это в `infra/.env.infra` и сделать так, чтобы `make up` падал без нужного профиля.
+- **`DETACH PARTITION`** может блокировать вставки до 2 с: использовать `DETACH ... CONCURRENTLY`.
+- **Smoke-набор** не проверяет `/health/track` и то, что события реально дошли до хранилища.
+- **Профиль `scale`:** ClickHouse использует общего пользователя `default`.
 
 ---
 
@@ -231,5 +269,5 @@
 - **Валидация имён и вариантов**: regex-паттерн и длина имён экспериментов и ключей вариантов, зарезервированные имена, лимит числа вариантов и веса 1..1 000 000 (в Python-версии — Pydantic-схемы, в lite — `apps/synaq/internal/api/validate`).
 - **Канонический порядок вариантов при распределении**: варианты перебираются по алфавиту, сравнение в целых числах. Исправлен баг: Postgres JSONB не сохраняет порядок ключей, и после истечения TTL кэша Redis у части пользователей менялся вариант. Сервер, `sdk/python` и `sdk/go` синхронизированы.
 - **Защита Go-трекера**: лимиты размера (тело 64 КБ → `413`, поля 256 символов, `event_data` 16 КБ → `400`), окно `timestamp` [сейчас − 7 дней, сейчас + 5 минут], ограниченная очередь продюсера (`503` + `Retry-After`), `limit_req` на `/api/v1/tracker/` (200 r/s с IP), таймауты HTTP-сервера, graceful shutdown, `/health` с проверкой приёмника. Генерация `event_id`, если клиент его не передал.
-- **Интерфейс приёмника событий** (`internal/sink`): в Python-версии `EVENT_SINK=kafka` или `clickhouse`; в lite synaq поддерживает только `clickhouse`, Kafka вернётся в профиле `scale`.
-- **Демо и Makefile**: `make up / token / demo / test / lint / go-test / smoke / zitadel-reset`.
+- **Интерфейс приёмника событий** (`internal/sink`): в Python-версии `EVENT_SINK=kafka` или `clickhouse`; synaq поддерживает `postgres` (по умолчанию) и `clickhouse` (профиль `scale`), Kafka вернётся позже в профиле `scale`.
+- **Демо и Makefile**: `make up / up-scale / token / demo / test / lint / go-test / smoke / smoke-ch / zitadel-reset`.
