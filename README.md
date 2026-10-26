@@ -1,36 +1,33 @@
 <div align="center">
-  <h1>SynaqCore</h1>
-  <p><b>Self-hosted платформа серверных A/B/n-экспериментов на одном небольшом VPS (2 ГБ):<br>
-  детерминированное распределение из памяти, события сразу в PostgreSQL<br>
-  и статистика (частотная и байесовская); ClickHouse — по желанию, профиль <code>scale</code></b></p>
 
-  <!-- Badges -->
-  <p>
-    <img src="https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go">
-    <img src="https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.11+">
-    <img src="https://img.shields.io/badge/ClickHouse-FFCC00?style=for-the-badge&logo=clickhouse&logoColor=black" alt="ClickHouse">
-    <img src="https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL">
-    <img src="https://img.shields.io/badge/Zitadel-OIDC-6C47FF?style=for-the-badge" alt="Zitadel">
-    <img src="https://img.shields.io/badge/Nginx-009639?style=for-the-badge&logo=nginx&logoColor=white" alt="Nginx">
-    <img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
-  </p>
+# SynaqCore
 
-  <p>
-    <img src="https://img.shields.io/badge/status-pet--project%20%2F%20self--hosted%20pilot-blue?style=flat-square" alt="Status">
-  </p>
+**Self-hosted платформа A/B/n-экспериментов для одного небольшого VPS (2 ГБ):<br>
+варианты из памяти за доли миллисекунды, события сразу в PostgreSQL, статистика из коробки.**
+
+[![CI](https://img.shields.io/github/actions/workflow/status/Kebiproger/synaqcore/ci.yml?branch=main&label=CI&logo=githubactions&logoColor=white)](https://github.com/Kebiproger/synaqcore/actions/workflows/ci.yml)
+![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
+![ClickHouse](https://img.shields.io/badge/ClickHouse-profile%20scale-FFCC00?logo=clickhouse&logoColor=black)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![Status](https://img.shields.io/badge/status-pet--project%20%2F%20self--hosted%20pilot-blue)
+
 </div>
-
----
 
 > **Статус.** Портфолио / pet-project. Стек поднимается одной командой и рассчитан на self-hosted пилот на одном
 > VPS (2 vCPU / 2 ГБ; профиль `scale` с ClickHouse — от 4 ГБ). До продакшена не хватает TLS, полноценного
-> A/B/n-анализа и мониторинга — см. [дорожную карту](#дорожная-карта). Предыдущая распределённая Python-версия
-> (Redis, Kafka) доступна по тегу `v1-python`.
+> A/B/n-анализа и мониторинга, см. [известные ограничения](#известные-ограничения). Предыдущая распределённая
+> Python-версия (Redis, Kafka) доступна по тегу `v1-python`, см. [историю версий](#история-версий).
 
 ## Содержание
 
+- [Что это](#что-это)
 - [Архитектура](#архитектура)
+- [Как это работает](#как-это-работает)
 - [Быстрый старт](#быстрый-старт)
+- [Результаты нагрузочных тестов](#результаты-нагрузочных-тестов)
+- [Безопасность](#безопасность)
 - [Бюджет памяти](#бюджет-памяти)
 - [Ключевые инженерные решения](#ключевые-инженерные-решения)
 - [Честные компромиссы](#честные-компромиссы)
@@ -43,8 +40,30 @@
 - [Аналитика и статистика](#аналитика-и-статистика)
 - [Структура репозитория](#структура-репозитория)
 - [Тесты и CI](#тесты-и-ci)
+- [Известные ограничения](#известные-ограничения)
 - [Дорожная карта](#дорожная-карта)
 - [Документация](#документация)
+- [История версий](#история-версий)
+
+---
+
+## Что это
+
+SynaqCore решает типичную задачу продуктовой команды: показать пользователям разные варианты (A/B/n), собрать их
+события и понять по статистике, какой вариант лучше. Всё это запускается на одном недорогом сервере: основной
+процесс написан на Go, статистика считается отдельным Python-сервисом, вход обслуживает Zitadel.
+
+Главная идея: горячий путь (выдача варианта) не ходит ни в базу, ни в кэш, а считается из снимка конфигураций в
+памяти. События не требуют брокера сообщений: они копятся в буфере и пишутся в PostgreSQL пачками.
+
+**Что умеет:**
+
+- детерминированная выдача вариантов: один и тот же пользователь всегда получает один и тот же вариант, без хранения назначений;
+- серверные SDK (Go, Python), которые считают вариант локально, без запроса в сеть; JS/TS SDK и React-хук для клиента;
+- приём событий с буфером, пакетной записью и защитой от перегрузки (`503` + `Retry-After`);
+- статистика: z-тест, интервалы Уилсона, байесовский Монте-Карло, бизнес-метрики;
+- вход через Zitadel (OIDC), роли `admin` / `analyst`, дашборд на React;
+- ClickHouse по желанию: профиль `scale` даёт полный отчёт (сегменты, воронка, выбросы).
 
 ---
 
@@ -72,7 +91,7 @@ flowchart LR
     GW -->|"публично, 200 r/s с IP"| TRK
     GW -->|"JWT: admin / analyst"| AAPI["analytics_api<br/>Python, /api/v1/stats/"]
     GW --> DASH["dashboard<br/>React SPA, /dashboard/"]
-    GW -->|":8081"| ZT["Zitadel (OIDC)"]
+    GW -->|"порт 8081"| ZT["Zitadel (OIDC)"]
 
     ADM -->|"SQL"| PGA[("postgres-app<br/>эксперименты + схема events")]
     PGA -->|"LISTEN/NOTIFY<br/>+ перечитывание 30 с"| VAR
@@ -99,6 +118,24 @@ flowchart LR
 сети `ab_testing_net`. Подробно — [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md), обоснование —
 [ADR 0002](docs/adr/0002-lite-go-monolith.md) и [ADR 0003](docs/adr/0003-postgres-default-event-store.md)
 (Postgres как хранилище событий по умолчанию).
+
+---
+
+## Как это работает
+
+1. **Распределение без состояния.** `bucket = SHA-256("{user_id}:{experiment}") % 10000`; варианты перебираются в
+   алфавитном порядке, побеждает первый, в чьи накопленные веса попал bucket (целочисленная арифметика, без
+   float). Ничего не записывается, поэтому Go и Python SDK считают тот же ответ у себя в памяти.
+2. **Конфиги в памяти.** Все эксперименты лежат в неизменяемом снимке; чтение — один `atomic.Load`. Снимок
+   обновляется сразу после записи через admin API, по `LISTEN/NOTIFY` из Postgres и полным перечитыванием раз в 30 с
+   на случай потерянного уведомления. Если Postgres недоступен, раздаётся последний снимок.
+3. **Конвейер событий.** Трекер проверяет событие и кладёт в ограниченный буфер в памяти (`200` значит «принято в
+   буфер»). Фоновый писатель собирает пачку (до 500 событий для Postgres, 1000 для ClickHouse) или ждёт 1 секунду и
+   делает один `INSERT`. Буфер полон — клиент получает `503` + `Retry-After`, трекер никогда не блокируется.
+4. **Хранение.** Сырые события лежат в суточных партициях `events.tracking_events`; synaq сам создаёт новые и
+   удаляет старые (по умолчанию старше 90 дней). Повторы отбрасываются по ключу `(event_id, user_id, event_name, UTC-день)`.
+5. **Безопасность по умолчанию.** JWT (RS256) проверяются по JWKS Zitadel и при любой неясности закрываются
+   (`503`); приложения работают под ролями БД с минимальными правами; наружу открыт только `127.0.0.1`.
 
 ---
 
@@ -193,6 +230,59 @@ Smoke-проверка HTTP-API synaq без основного стека: `mak
 >    с профилем `scale`; в стеке по умолчанию отчёты начнутся с пустой таблицы `events`.
 
 ---
+
+## Результаты нагрузочных тестов
+
+Сравнение двух версий на одной машине, стек ограничен двумя ядрами (как VPS на 2 vCPU). **heavy** — прежняя версия
+на микросервисах (тег `v1-python`: Python + Redis, Go-трекер → Redpanda/Kafka → ClickHouse), **lite** — текущий
+Go-монолит с Postgres. «Колено» — самая высокая ступень нагрузки, где p99 < 250 мс, ошибок < 1% и k6 не пропустил
+больше 1% запросов. Нагрузка открытая (`constant-arrival-rate` в k6).
+
+| Сценарий | heavy: колено, RPS | heavy: p99 на колене | lite: колено, RPS | lite: p99 на колене |
+|---|---:|---:|---:|---:|
+| Выдача вариантов (`variants`) | 500 | 19.2 мс | 6000 | 30.7 мс |
+| Приём событий (`tracker`) | 4000 | 109.9 мс | 4000 | 152.5 мс |
+| Смесь 90% варианты / 10% события (`mixed`) | 600 | 13.1 мс | 6000 | 69.5 мс |
+
+Колено, RPS (один █ = 250 RPS):
+
+| Сценарий | heavy | lite |
+|---|---|---|
+| `variants` | `██` 500 | `████████████████████████` 6000 |
+| `tracker` | `████████████████` 4000 | `████████████████` 4000 |
+| `mixed` | `██` 600 | `████████████████████████` 6000 |
+
+Коротко: выдача вариантов из памяти на порядок быстрее, чем Python + Redis; приём событий у обеих версий упирается
+примерно в одно и то же, потому что `200` возвращается из буфера в памяти до записи в хранилище. Сильные стороны Kafka
+(долговечность, всплески, несколько потребителей) здесь **не измерялись**.
+
+> **Оговорка.** Каждая ступень нагрузки прогнана один раз, генератор нагрузки и стек работают на одной машине, события
+> синтетические и маленькие. Читайте цифры как порядок величины. Методика, полные таблицы и целостность событий —
+> в [tests/bench/README.md](tests/bench/README.md).
+
+---
+
+## Безопасность
+
+Только то, что есть в репозитории:
+
+- **JWT (RS256) через Zitadel, fail-closed.** Проверяются подпись по JWKS, `iss`, `aud`, `exp` и обязательный `jti`;
+  роли берутся только из проектного claim. OIDC не настроен или JWKS недоступен — `503`, а не пропуск.
+- **Роли БД с минимальными правами.** `synaq_app` и `synaq_analytics` (последняя только читает `events`, с
+  `statement_timeout`); суперпользователь есть только у одноразового init-контейнера и самой СУБД.
+- **Контейнеры приложений:** `read_only: true` и `cap_drop: ALL` (`synaq`, `analytics_api`, `dashboard`).
+- **Порты только на `127.0.0.1`:** наружу публикуется один gateway.
+- **nginx:** `limit_req` на выдачу вариантов и приём событий, лимиты размера тела запроса; в самом трекере тело ≤ 64 КБ,
+  строки ≤ 256 символов, `event_data` ≤ 16 КБ, окно по времени события.
+- **Параметризованный SQL.** Весь SQL synaq и Postgres-режима `analytics_api` параметризован; всё, что попадает в
+  SQL к ClickHouse, проверяется регулярками и белыми списками.
+- **Цепочка поставки CI:** GitHub Actions закреплены по SHA, обновления — через Dependabot.
+
+TLS в репозитории пока нет (см. [известные ограничения](#известные-ограничения)); в CI нет статического или
+динамического сканирования безопасности и поиска секретов.
+
+---
+
 
 ## Бюджет памяти
 
@@ -563,6 +653,22 @@ GitHub Actions (`.github/workflows/ci.yml`): ruff + pytest; gofmt + go vet + go 
 Нагрузочный тест: `eval "$(make -s token)" && locust -f tests/load/locustfile.py --host http://localhost:8080`
 (с одной машины упрётесь в `limit_req` nginx — ответы `429`).
 
+
+---
+
+## Известные ограничения
+
+- **Нет долговременного буфера событий.** `200` значит «принято в память»; при падении процесса или после 5 неудачных
+  попыток записи событие из буфера теряется. Для A/B-аналитики это приемлемо, для биллинга нет
+  (подробнее в [«Честных компромиссах»](#честные-компромиссы)).
+- **Нет TLS и мониторинга.** Gateway слушает HTTP на `127.0.0.1`; `/metrics` и Grafana в планах.
+- **Упрощённый отчёт на Postgres.** Сегменты, воронка и выбросы — только в профиле `scale` с ClickHouse; сравниваются
+  контроль и один другой вариант, поправки на множественные проверки нет.
+- **Один инстанс `synaq`**, бэкапы не автоматизированы.
+- **Измерения ограничены:** бенчмарк прогнан по одному разу на одной машине, поведение при авариях и всплесках не проверялось.
+
+Весь список и порядок работ — в [docs/plan.md](docs/plan.md).
+
 ---
 
 ## Дорожная карта
@@ -579,8 +685,7 @@ least-privilege роли БД ([ADR 0003](docs/adr/0003-postgres-default-event-s
 - **Профиль `scale` с Kafka/Redpanda** как долговременным буфером перед ClickHouse — в той же кодовой базе (фаза 3).
 - A/B/n-анализ с поправкой на множественные проверки; сегменты и воронка для Postgres-режима.
 
-Python-версия (FastAPI `experiment_api` + Redis, трекер → Redpanda → ClickHouse Kafka engine) остаётся доступной по
-тегу `v1-python`. Подробно: [docs/plan.md](docs/plan.md), статус — [docs/SESSION_CONTEXT.md](docs/SESSION_CONTEXT.md).
+Подробно: [docs/plan.md](docs/plan.md), статус — [docs/SESSION_CONTEXT.md](docs/SESSION_CONTEXT.md).
 
 ---
 
@@ -595,6 +700,18 @@ Python-версия (FastAPI `experiment_api` + Redis, трекер → Redpanda
 - [docs/clickhouse-kafka/README.md](docs/clickhouse-kafka/README.md) — профиль `scale`: ClickHouse (и Kafka позже)
 - [docs/INTEGRATION_GUIDE.md](docs/INTEGRATION_GUIDE.md) — интеграция
 - [docs/plan.md](docs/plan.md) — дорожная карта
+
+---
+
+## История версий
+
+| Версия | Тег | Устройство |
+|---|---|---|
+| **v1 (Python, микросервисы)** | `v1-python` | FastAPI `experiment_api` + Redis (кэш конфигов), Go-трекер → Redpanda (Kafka) → ClickHouse, отдельный `analytics_api` |
+| **v2 (lite, текущая)** | `main`; снимок `v2-lite-freeze` | Go-монолит `synaq` (варианты + admin API + трекер), события в Postgres, ClickHouse в профиле `scale`; Redis и брокера нет |
+
+Причины перехода и сравнение на цифрах — в [docs/WHY.md](docs/WHY.md) и [ADR 0002](docs/adr/0002-lite-go-monolith.md).
+Старую версию можно посмотреть так: `git checkout v1-python`.
 
 ## Лицензия
 
