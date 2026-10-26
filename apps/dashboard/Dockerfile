@@ -11,7 +11,7 @@ COPY src ./src
 RUN npm run build
 
 # ---------- runtime ----------
-FROM nginxinc/nginx-unprivileged:1.31.6-alpine3.24
+FROM nginxinc/nginx-unprivileged:1.31.7-alpine3.24
 # Origin Zitadel для CSP (connect-src / frame-src). Переопределяется в compose.
 ENV ZITADEL_ORIGIN=http://localhost:8081
 COPY nginx.conf /etc/nginx/templates/default.conf.template
