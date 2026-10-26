@@ -1,0 +1,957 @@
+{
+  "meta": {
+    "version": "heavy",
+    "scenario": "variants",
+    "commit": "9409b1a",
+    "branch": "main",
+    "sut_cpus": "0-1",
+    "k6_cpus": "8-15",
+    "k6_image": "grafana/k6:0.54.0",
+    "base_url": "http://172.20.0.11:80",
+    "rates": "100 200 300 400 500 600 800 1000 1500 2000 3000 4000 6000 8000 12000",
+    "duration_s": 30,
+    "warmup_s": 5,
+    "host_loadavg_at_start": "1.15 1.80 1.94",
+    "date": "2026-10-25T20:42:52+05:00"
+  },
+  "knee_rps": 500,
+  "knee_confirmed_rps": 500,
+  "runs": [
+    {
+      "target_rps": 250,
+      "achieved_rps": 250.0,
+      "requests": 7500,
+      "p50_ms": 1.2634395,
+      "p90_ms": 2.0206311,
+      "p95_ms": 2.5728445999999994,
+      "p99_ms": 10.673902400000003,
+      "max_ms": 29.502749,
+      "avg_ms": 1.57538474053334,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 1.2634395,
+        "p95": 2.5728445999999994,
+        "p99": 10.673902400000003
+      },
+      "variants_requests": 7500,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "h250a",
+      "kind": "half",
+      "rate": 250,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 4.76,
+          "mem_mib_max": 7.0,
+          "cpu_pct_avg": 3.8
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 76.1,
+          "mem_mib_max": 144.1,
+          "cpu_pct_avg": 12.8
+        },
+        "sb-track_api": {
+          "cpu_pct_max": 5.96,
+          "mem_mib_max": 9.3,
+          "cpu_pct_avg": 0.5
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 7.25,
+          "mem_mib_max": 46.0,
+          "cpu_pct_avg": 0.7
+        },
+        "sb-experiment_api": {
+          "cpu_pct_max": 36.86,
+          "mem_mib_max": 112.2,
+          "cpu_pct_avg": 26.4
+        },
+        "sb-postgres": {
+          "cpu_pct_max": 8.44,
+          "mem_mib_max": 75.1,
+          "cpu_pct_avg": 1.3
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 0.0,
+          "mem_mib_max": 3.4,
+          "cpu_pct_avg": 0.0
+        },
+        "sb-clickhouse": {
+          "cpu_pct_max": 9.63,
+          "mem_mib_max": 620.4,
+          "cpu_pct_avg": 3.8
+        },
+        "sb-redis": {
+          "cpu_pct_max": 7.53,
+          "mem_mib_max": 9.0,
+          "cpu_pct_avg": 2.1
+        },
+        "sb-redpanda": {
+          "cpu_pct_max": 11.52,
+          "mem_mib_max": 277.4,
+          "cpu_pct_avg": 2.2
+        }
+      }
+    },
+    {
+      "target_rps": 250,
+      "achieved_rps": 250.0,
+      "requests": 7501,
+      "p50_ms": 1.256227,
+      "p90_ms": 1.885166,
+      "p95_ms": 2.121519,
+      "p99_ms": 3.376153,
+      "max_ms": 10.412461,
+      "avg_ms": 1.3780935305959183,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 1.256227,
+        "p95": 2.121519,
+        "p99": 3.376153
+      },
+      "variants_requests": 7501,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "h250b",
+      "kind": "half",
+      "rate": 250,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 4.68,
+          "mem_mib_max": 7.0,
+          "cpu_pct_avg": 4.1
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 33.32,
+          "mem_mib_max": 93.2,
+          "cpu_pct_avg": 5.3
+        },
+        "sb-track_api": {
+          "cpu_pct_max": 5.85,
+          "mem_mib_max": 9.2,
+          "cpu_pct_avg": 0.5
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 6.21,
+          "mem_mib_max": 46.2,
+          "cpu_pct_avg": 0.8
+        },
+        "sb-experiment_api": {
+          "cpu_pct_max": 31.51,
+          "mem_mib_max": 112.3,
+          "cpu_pct_avg": 27.1
+        },
+        "sb-postgres": {
+          "cpu_pct_max": 8.87,
+          "mem_mib_max": 75.2,
+          "cpu_pct_avg": 2.1
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 5.72,
+          "mem_mib_max": 3.5,
+          "cpu_pct_avg": 1.1
+        },
+        "sb-clickhouse": {
+          "cpu_pct_max": 13.04,
+          "mem_mib_max": 647.1,
+          "cpu_pct_avg": 5.5
+        },
+        "sb-redis": {
+          "cpu_pct_max": 7.15,
+          "mem_mib_max": 9.0,
+          "cpu_pct_avg": 1.9
+        },
+        "sb-redpanda": {
+          "cpu_pct_max": 12.68,
+          "mem_mib_max": 286.1,
+          "cpu_pct_avg": 2.6
+        }
+      }
+    },
+    {
+      "target_rps": 500,
+      "achieved_rps": 500.0,
+      "requests": 15001,
+      "p50_ms": 0.82114,
+      "p90_ms": 1.760091,
+      "p95_ms": 3.222123,
+      "p99_ms": 23.16104,
+      "max_ms": 66.719919,
+      "avg_ms": 1.557626361109263,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 0.82114,
+        "p95": 3.222123,
+        "p99": 23.16104
+      },
+      "variants_requests": 15001,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "k500b",
+      "kind": "knee",
+      "rate": 500,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 9.15,
+          "mem_mib_max": 7.4,
+          "cpu_pct_avg": 5.7
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 40.51,
+          "mem_mib_max": 93.2,
+          "cpu_pct_avg": 6.8
+        },
+        "sb-track_api": {
+          "cpu_pct_max": 6.91,
+          "mem_mib_max": 9.1,
+          "cpu_pct_avg": 0.8
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 3.24,
+          "mem_mib_max": 52.9,
+          "cpu_pct_avg": 0.4
+        },
+        "sb-experiment_api": {
+          "cpu_pct_max": 66.56,
+          "mem_mib_max": 112.4,
+          "cpu_pct_avg": 38.0
+        },
+        "sb-postgres": {
+          "cpu_pct_max": 9.23,
+          "mem_mib_max": 77.6,
+          "cpu_pct_avg": 1.3
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 0.0,
+          "mem_mib_max": 3.4,
+          "cpu_pct_avg": 0.0
+        },
+        "sb-clickhouse": {
+          "cpu_pct_max": 14.81,
+          "mem_mib_max": 572.1,
+          "cpu_pct_avg": 4.8
+        },
+        "sb-redis": {
+          "cpu_pct_max": 9.4,
+          "mem_mib_max": 9.0,
+          "cpu_pct_avg": 2.8
+        },
+        "sb-redpanda": {
+          "cpu_pct_max": 6.17,
+          "mem_mib_max": 277.4,
+          "cpu_pct_avg": 0.8
+        }
+      }
+    },
+    {
+      "target_rps": 100,
+      "achieved_rps": 100.0,
+      "requests": 3001,
+      "p50_ms": 1.535117,
+      "p90_ms": 2.396943,
+      "p95_ms": 3.379995,
+      "p99_ms": 6.748359,
+      "max_ms": 16.409418,
+      "avg_ms": 1.7930624935021628,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 1.535117,
+        "p95": 3.379995,
+        "p99": 6.748359
+      },
+      "variants_requests": 3001,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "l100",
+      "kind": "ladder",
+      "rate": 100,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 2.51,
+          "mem_mib_max": 7.0,
+          "cpu_pct_avg": 2.2
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 81.34,
+          "mem_mib_max": 129.2,
+          "cpu_pct_avg": 11.2
+        },
+        "sb-track_api": {
+          "cpu_pct_max": 6.68,
+          "mem_mib_max": 9.3,
+          "cpu_pct_avg": 1.7
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 7.04,
+          "mem_mib_max": 45.9,
+          "cpu_pct_avg": 1.2
+        },
+        "sb-experiment_api": {
+          "cpu_pct_max": 74.04,
+          "mem_mib_max": 95.0,
+          "cpu_pct_avg": 22.9
+        },
+        "sb-postgres": {
+          "cpu_pct_max": 11.9,
+          "mem_mib_max": 83.0,
+          "cpu_pct_avg": 2.0
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 0.0,
+          "mem_mib_max": 3.4,
+          "cpu_pct_avg": 0.0
+        },
+        "sb-clickhouse": {
+          "cpu_pct_max": 28.75,
+          "mem_mib_max": 431.0,
+          "cpu_pct_avg": 7.8
+        },
+        "sb-redis": {
+          "cpu_pct_max": 7.0,
+          "mem_mib_max": 8.3,
+          "cpu_pct_avg": 1.4
+        },
+        "sb-redpanda": {
+          "cpu_pct_max": 12.72,
+          "mem_mib_max": 277.4,
+          "cpu_pct_avg": 3.7
+        }
+      }
+    },
+    {
+      "target_rps": 200,
+      "achieved_rps": 200.0,
+      "requests": 6001,
+      "p50_ms": 1.351053,
+      "p90_ms": 2.078396,
+      "p95_ms": 2.401401,
+      "p99_ms": 3.848464,
+      "max_ms": 24.144528,
+      "avg_ms": 1.5179622364605916,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 1.351053,
+        "p95": 2.401401,
+        "p99": 3.848464
+      },
+      "variants_requests": 6001,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "l200",
+      "kind": "ladder",
+      "rate": 200,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 3.92,
+          "mem_mib_max": 7.0,
+          "cpu_pct_avg": 3.5
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 78.99,
+          "mem_mib_max": 93.0,
+          "cpu_pct_avg": 13.5
+        },
+        "sb-track_api": {
+          "cpu_pct_max": 5.72,
+          "mem_mib_max": 9.1,
+          "cpu_pct_avg": 0.5
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 7.02,
+          "mem_mib_max": 45.9,
+          "cpu_pct_avg": 0.7
+        },
+        "sb-experiment_api": {
+          "cpu_pct_max": 72.33,
+          "mem_mib_max": 81.5,
+          "cpu_pct_avg": 27.5
+        },
+        "sb-postgres": {
+          "cpu_pct_max": 6.9,
+          "mem_mib_max": 89.9,
+          "cpu_pct_avg": 2.0
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 0.0,
+          "mem_mib_max": 3.3,
+          "cpu_pct_avg": 0.0
+        },
+        "sb-clickhouse": {
+          "cpu_pct_max": 34.12,
+          "mem_mib_max": 456.0,
+          "cpu_pct_avg": 7.1
+        },
+        "sb-redis": {
+          "cpu_pct_max": 6.98,
+          "mem_mib_max": 8.3,
+          "cpu_pct_avg": 2.3
+        },
+        "sb-redpanda": {
+          "cpu_pct_max": 11.33,
+          "mem_mib_max": 293.2,
+          "cpu_pct_avg": 3.1
+        }
+      }
+    },
+    {
+      "target_rps": 300,
+      "achieved_rps": 300.0,
+      "requests": 9001,
+      "p50_ms": 1.244072,
+      "p90_ms": 1.896005,
+      "p95_ms": 2.316834,
+      "p99_ms": 9.45201,
+      "max_ms": 149.677962,
+      "avg_ms": 1.7629590928785637,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 1.244072,
+        "p95": 2.316834,
+        "p99": 9.45201
+      },
+      "variants_requests": 9001,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "l300",
+      "kind": "ladder",
+      "rate": 300,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 5.66,
+          "mem_mib_max": 7.1,
+          "cpu_pct_avg": 4.9
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 72.17,
+          "mem_mib_max": 145.9,
+          "cpu_pct_avg": 9.6
+        },
+        "sb-track_api": {
+          "cpu_pct_max": 6.27,
+          "mem_mib_max": 9.1,
+          "cpu_pct_avg": 0.5
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 7.21,
+          "mem_mib_max": 46.2,
+          "cpu_pct_avg": 0.9
+        },
+        "sb-experiment_api": {
+          "cpu_pct_max": 59.86,
+          "mem_mib_max": 82.3,
+          "cpu_pct_avg": 35.1
+        },
+        "sb-postgres": {
+          "cpu_pct_max": 7.23,
+          "mem_mib_max": 84.3,
+          "cpu_pct_avg": 1.6
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 5.49,
+          "mem_mib_max": 3.9,
+          "cpu_pct_avg": 0.5
+        },
+        "sb-clickhouse": {
+          "cpu_pct_max": 18.22,
+          "mem_mib_max": 481.1,
+          "cpu_pct_avg": 5.1
+        },
+        "sb-redis": {
+          "cpu_pct_max": 7.84,
+          "mem_mib_max": 8.4,
+          "cpu_pct_avg": 2.4
+        },
+        "sb-redpanda": {
+          "cpu_pct_max": 13.27,
+          "mem_mib_max": 277.6,
+          "cpu_pct_avg": 2.4
+        }
+      }
+    },
+    {
+      "target_rps": 400,
+      "achieved_rps": 400.0,
+      "requests": 12001,
+      "p50_ms": 1.216451,
+      "p90_ms": 1.991234,
+      "p95_ms": 3.52584,
+      "p99_ms": 30.182601,
+      "max_ms": 149.618962,
+      "avg_ms": 2.166127086326145,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 1.216451,
+        "p95": 3.52584,
+        "p99": 30.182601
+      },
+      "variants_requests": 12001,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "l400",
+      "kind": "ladder",
+      "rate": 400,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 7.3,
+          "mem_mib_max": 6.9,
+          "cpu_pct_avg": 5.8
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 70.11,
+          "mem_mib_max": 127.6,
+          "cpu_pct_avg": 14.2
+        },
+        "sb-track_api": {
+          "cpu_pct_max": 2.51,
+          "mem_mib_max": 9.4,
+          "cpu_pct_avg": 0.4
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 3.17,
+          "mem_mib_max": 45.9,
+          "cpu_pct_avg": 0.3
+        },
+        "sb-experiment_api": {
+          "cpu_pct_max": 79.76,
+          "mem_mib_max": 82.5,
+          "cpu_pct_avg": 40.6
+        },
+        "sb-postgres": {
+          "cpu_pct_max": 8.07,
+          "mem_mib_max": 83.6,
+          "cpu_pct_avg": 1.6
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 6.71,
+          "mem_mib_max": 3.4,
+          "cpu_pct_avg": 0.7
+        },
+        "sb-clickhouse": {
+          "cpu_pct_max": 20.08,
+          "mem_mib_max": 515.5,
+          "cpu_pct_avg": 6.0
+        },
+        "sb-redis": {
+          "cpu_pct_max": 3.78,
+          "mem_mib_max": 8.4,
+          "cpu_pct_avg": 2.3
+        },
+        "sb-redpanda": {
+          "cpu_pct_max": 14.25,
+          "mem_mib_max": 277.6,
+          "cpu_pct_avg": 1.9
+        }
+      }
+    },
+    {
+      "target_rps": 500,
+      "achieved_rps": 500.0,
+      "requests": 15001,
+      "p50_ms": 1.000486,
+      "p90_ms": 1.776722,
+      "p95_ms": 2.767559,
+      "p99_ms": 19.229498,
+      "max_ms": 84.389675,
+      "avg_ms": 1.5410247939470791,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 1.000486,
+        "p95": 2.767559,
+        "p99": 19.229498
+      },
+      "variants_requests": 15001,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "l500",
+      "kind": "ladder",
+      "rate": 500,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 8.95,
+          "mem_mib_max": 7.0,
+          "cpu_pct_avg": 6.9
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 63.27,
+          "mem_mib_max": 131.5,
+          "cpu_pct_avg": 6.1
+        },
+        "sb-track_api": {
+          "cpu_pct_max": 6.87,
+          "mem_mib_max": 9.4,
+          "cpu_pct_avg": 0.6
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 3.23,
+          "mem_mib_max": 45.8,
+          "cpu_pct_avg": 0.4
+        },
+        "sb-experiment_api": {
+          "cpu_pct_max": 113.1,
+          "mem_mib_max": 82.5,
+          "cpu_pct_avg": 52.1
+        },
+        "sb-postgres": {
+          "cpu_pct_max": 6.04,
+          "mem_mib_max": 83.8,
+          "cpu_pct_avg": 1.0
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 0.0,
+          "mem_mib_max": 3.4,
+          "cpu_pct_avg": 0.0
+        },
+        "sb-clickhouse": {
+          "cpu_pct_max": 11.95,
+          "mem_mib_max": 545.5,
+          "cpu_pct_avg": 4.2
+        },
+        "sb-redis": {
+          "cpu_pct_max": 9.27,
+          "mem_mib_max": 15.3,
+          "cpu_pct_avg": 3.6
+        },
+        "sb-redpanda": {
+          "cpu_pct_max": 15.13,
+          "mem_mib_max": 288.2,
+          "cpu_pct_avg": 3.2
+        }
+      }
+    },
+    {
+      "target_rps": 600,
+      "achieved_rps": 596.9,
+      "requests": 17907,
+      "p50_ms": 0.883837,
+      "p90_ms": 26.111334799999998,
+      "p95_ms": 100.77506490000005,
+      "p99_ms": 473.80239799999794,
+      "max_ms": 1375.470155,
+      "avg_ms": 20.391722756352355,
+      "error_rate": 0.0,
+      "dropped_iterations": 94,
+      "dropped_share": 0.00522,
+      "variants_ms": {
+        "p50": 0.883837,
+        "p95": 100.77506490000005,
+        "p99": 473.80239799999794
+      },
+      "variants_requests": 17907,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "l600",
+      "kind": "ladder",
+      "rate": 600,
+      "duration_s": 30,
+      "verdict": "p99=474мс",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 10.78,
+          "mem_mib_max": 7.4,
+          "cpu_pct_avg": 7.7
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 4.11,
+          "mem_mib_max": 99.9,
+          "cpu_pct_avg": 0.9
+        },
+        "sb-track_api": {
+          "cpu_pct_max": 2.68,
+          "mem_mib_max": 9.3,
+          "cpu_pct_avg": 0.2
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 3.8,
+          "mem_mib_max": 45.8,
+          "cpu_pct_avg": 0.4
+        },
+        "sb-experiment_api": {
+          "cpu_pct_max": 107.13,
+          "mem_mib_max": 85.9,
+          "cpu_pct_avg": 52.4
+        },
+        "sb-postgres": {
+          "cpu_pct_max": 8.59,
+          "mem_mib_max": 83.9,
+          "cpu_pct_avg": 2.2
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 0.0,
+          "mem_mib_max": 3.3,
+          "cpu_pct_avg": 0.0
+        },
+        "sb-clickhouse": {
+          "cpu_pct_max": 13.52,
+          "mem_mib_max": 537.3,
+          "cpu_pct_avg": 5.1
+        },
+        "sb-redis": {
+          "cpu_pct_max": 4.67,
+          "mem_mib_max": 9.2,
+          "cpu_pct_avg": 2.7
+        },
+        "sb-redpanda": {
+          "cpu_pct_max": 15.6,
+          "mem_mib_max": 277.6,
+          "cpu_pct_avg": 4.7
+        }
+      }
+    },
+    {
+      "target_rps": 800,
+      "achieved_rps": 747.7,
+      "requests": 22430,
+      "p50_ms": 12.4620625,
+      "p90_ms": 1867.4412391000012,
+      "p95_ms": 3765.8676019499985,
+      "p99_ms": 5203.38943749,
+      "max_ms": 6243.655193,
+      "avg_ms": 526.4335797230963,
+      "error_rate": 0.00976,
+      "dropped_iterations": 1571,
+      "dropped_share": 0.06546,
+      "variants_ms": {
+        "p50": 12.4620625,
+        "p95": 3765.8676019499985,
+        "p99": 5203.38943749
+      },
+      "variants_requests": 22430,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "l800",
+      "kind": "ladder",
+      "rate": 800,
+      "duration_s": 30,
+      "verdict": "p99=5203мс, dropped=6.5%",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 12.61,
+          "mem_mib_max": 24.6,
+          "cpu_pct_avg": 7.8
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 40.58,
+          "mem_mib_max": 111.4,
+          "cpu_pct_avg": 7.2
+        },
+        "sb-track_api": {
+          "cpu_pct_max": 5.29,
+          "mem_mib_max": 9.3,
+          "cpu_pct_avg": 0.4
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 3.97,
+          "mem_mib_max": 46.1,
+          "cpu_pct_avg": 0.7
+        },
+        "sb-experiment_api": {
+          "cpu_pct_max": 118.03,
+          "mem_mib_max": 113.6,
+          "cpu_pct_avg": 73.6
+        },
+        "sb-postgres": {
+          "cpu_pct_max": 23.27,
+          "mem_mib_max": 94.9,
+          "cpu_pct_avg": 11.2
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 0.0,
+          "mem_mib_max": 3.4,
+          "cpu_pct_avg": 0.0
+        },
+        "sb-clickhouse": {
+          "cpu_pct_max": 14.65,
+          "mem_mib_max": 554.8,
+          "cpu_pct_avg": 5.8
+        },
+        "sb-redis": {
+          "cpu_pct_max": 7.11,
+          "mem_mib_max": 9.4,
+          "cpu_pct_avg": 1.6
+        },
+        "sb-redpanda": {
+          "cpu_pct_max": 11.74,
+          "mem_mib_max": 277.6,
+          "cpu_pct_avg": 1.7
+        }
+      }
+    },
+    {
+      "target_rps": 100,
+      "achieved_rps": 100.0,
+      "requests": 3001,
+      "p50_ms": 1.414742,
+      "p90_ms": 2.002403,
+      "p95_ms": 2.343592,
+      "p99_ms": 3.353605,
+      "max_ms": 6.084043,
+      "avg_ms": 1.5059510546484476,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 1.414742,
+        "p95": 2.343592,
+        "p99": 3.353605
+      },
+      "variants_requests": 3001,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "prewarm",
+      "kind": "prewarm",
+      "rate": 100,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 2.25,
+          "mem_mib_max": 6.9,
+          "cpu_pct_avg": 2.0
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 60.42,
+          "mem_mib_max": 147.6,
+          "cpu_pct_avg": 5.5
+        },
+        "sb-track_api": {
+          "cpu_pct_max": 2.29,
+          "mem_mib_max": 9.1,
+          "cpu_pct_avg": 0.2
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 6.65,
+          "mem_mib_max": 45.9,
+          "cpu_pct_avg": 1.2
+        },
+        "sb-experiment_api": {
+          "cpu_pct_max": 15.0,
+          "mem_mib_max": 81.2,
+          "cpu_pct_avg": 12.3
+        },
+        "sb-postgres": {
+          "cpu_pct_max": 7.11,
+          "mem_mib_max": 81.9,
+          "cpu_pct_avg": 1.7
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 0.0,
+          "mem_mib_max": 3.4,
+          "cpu_pct_avg": 0.0
+        },
+        "sb-clickhouse": {
+          "cpu_pct_max": 17.12,
+          "mem_mib_max": 396.4,
+          "cpu_pct_avg": 6.1
+        },
+        "sb-redis": {
+          "cpu_pct_max": 5.97,
+          "mem_mib_max": 8.3,
+          "cpu_pct_avg": 1.5
+        },
+        "sb-redpanda": {
+          "cpu_pct_max": 11.6,
+          "mem_mib_max": 286.3,
+          "cpu_pct_avg": 1.4
+        }
+      }
+    }
+  ],
+  "integrity": null
+}

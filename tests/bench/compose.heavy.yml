@@ -1,0 +1,86 @@
+# Override стенда бенчмарка для heavy (ветка main, код тега v1-python).
+# Подключается вторым -f к корневому docker-compose.yml heavy-checkout:
+#   docker compose -p synbench-heavy -f <heavy>/docker-compose.yml -f compose.heavy.yml ...
+# Продуктовые файлы не меняются. Что делает override:
+#  * cpuset ${SUT_CPUS} для ВСЕХ сервисов стека (эмуляция VPS 2 vCPU);
+#  * отдельная сеть synbench_net (не трогаем ab_testing_net пользователя);
+#  * gateway получает nginx.conf из ${BENCH_WORK} (копия без limit_req, access_log off);
+#  * Zitadel bootstrap-каталоги (secrets/public) уходят в ${BENCH_WORK}, чтобы старые
+#    oidc.json/automation.json из checkout не смешивались со свежим инстансом;
+#  * experiment_api запускается без --reload (в compose heavy стоит dev-режим);
+#  * логи контейнеров ограничены по размеру (чтобы не забивать диск при 10k+ RPS).
+# container_name = sb-<сервис>: у пользователя остаются остановленные контейнеры
+# с исходными фиксированными именами (synaq, gateway, ...), их не трогаем.
+# Порты по-прежнему только 127.0.0.1 (определены в исходных compose-файлах).
+
+x-sut: &sut
+  cpuset: ${SUT_CPUS:-0-1}
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "2"}
+
+services:
+  redis:
+    <<: *sut
+    container_name: sb-redis
+  redpanda:
+    <<: *sut
+    container_name: sb-redpanda
+  redpanda-init:
+    <<: *sut
+    container_name: sb-redpanda-init
+  postgres:
+    <<: *sut
+    container_name: sb-postgres
+  clickhouse:
+    <<: *sut
+    container_name: sb-clickhouse
+  zitadel-dbinit:
+    <<: *sut
+    container_name: sb-zitadel-dbinit
+  zitadel-setup:
+    <<: *sut
+    container_name: sb-zitadel-setup
+    volumes:
+      - ${BENCH_WORK}/zitadel/secrets:/zitadel-secrets
+  zitadel:
+    <<: *sut
+    container_name: sb-zitadel
+  zitadel-init:
+    <<: *sut
+    container_name: sb-zitadel-init
+    volumes:
+      - ${BENCH_WORK}/zitadel/secrets:/zitadel-secrets
+      - ${BENCH_WORK}/zitadel/public:/zitadel-public
+  experiment_api:
+    <<: *sut
+    container_name: sb-experiment_api
+    # Как CMD из Dockerfile (один worker uvicorn), но без --reload.
+    # HEAVY_UVICORN_EXTRA, например "--no-access-log", для сравнения.
+    command: sh -c "exec uvicorn src.main:app --host 0.0.0.0 --port 8000 ${HEAVY_UVICORN_EXTRA:-}"
+    volumes:
+      - ${BENCH_WORK}/zitadel/public:/zitadel-public:ro
+  track_api:
+    <<: *sut
+    container_name: sb-track_api
+  analytics_api:
+    <<: *sut
+    container_name: sb-analytics_api
+    command: sh -c "exec uvicorn src.main:app --host 0.0.0.0 --port 8000"
+    volumes:
+      - ${BENCH_WORK}/zitadel/public:/zitadel-public:ro
+  dashboard:
+    <<: *sut
+    container_name: sb-dashboard
+    volumes:
+      - ${BENCH_WORK}/zitadel/public:/zitadel-public:ro
+  gateway:
+    <<: *sut
+    container_name: sb-gateway
+    volumes:
+      - ${BENCH_WORK}/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${HEAVY_DIR}/sdk:/var/www/sdk:ro
+
+networks:
+  ab_testing_net:
+    name: synbench_net

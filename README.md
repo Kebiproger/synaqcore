@@ -587,6 +587,8 @@ Python-версия (FastAPI `experiment_api` + Redis, трекер → Redpanda
 ## Документация
 
 - [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md) — архитектура
+- [docs/WHY.md](docs/WHY.md) — почему такая архитектура (простыми словами, с итогами бенчмарка)
+- [tests/bench/README.md](tests/bench/README.md) — нагрузочный бенчмарк heavy против lite: как запустить и результаты
 - [docs/adr/0002-lite-go-monolith.md](docs/adr/0002-lite-go-monolith.md) — ADR: Go-монолит на одном VPS
 - [docs/adr/0003-postgres-default-event-store.md](docs/adr/0003-postgres-default-event-store.md) — ADR: события в Postgres по умолчанию, ClickHouse в профиле `scale`
 - [docs/adr/0001-kafka-vs-rabbitmq.md](docs/adr/0001-kafka-vs-rabbitmq.md) — ADR: Kafka (Python-версия и профиль `scale`)

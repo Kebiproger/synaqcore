@@ -1,0 +1,1282 @@
+{
+  "meta": {
+    "version": "lite",
+    "scenario": "variants",
+    "commit": "e5b89b4",
+    "branch": "lite",
+    "sut_cpus": "0-1",
+    "k6_cpus": "8-15",
+    "k6_image": "grafana/k6:0.54.0",
+    "base_url": "http://172.20.0.8:80",
+    "rates": "100 200 300 400 500 600 800 1000 1500 2000 3000 4000 6000 8000 12000",
+    "duration_s": 30,
+    "warmup_s": 5,
+    "host_loadavg_at_start": "1.26 1.90 2.17",
+    "date": "2026-10-25T21:17:19+05:00"
+  },
+  "knee_rps": 6000,
+  "knee_confirmed_rps": 6000,
+  "runs": [
+    {
+      "target_rps": 3000,
+      "achieved_rps": 3000.1,
+      "requests": 90003,
+      "p50_ms": 0.335044,
+      "p90_ms": 0.6051350000000001,
+      "p95_ms": 1.034701899999998,
+      "p99_ms": 2.725222319999993,
+      "max_ms": 32.125559,
+      "avg_ms": 0.4479766323789246,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 0.335044,
+        "p95": 1.034701899999998,
+        "p99": 2.725222319999993
+      },
+      "variants_requests": 90003,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "h3000a",
+      "kind": "half",
+      "rate": 3000,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 41.7,
+          "mem_mib_max": 8.8,
+          "cpu_pct_avg": 33.3
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 78.63,
+          "mem_mib_max": 99.0,
+          "cpu_pct_avg": 7.3
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 3.37,
+          "mem_mib_max": 48.1,
+          "cpu_pct_avg": 0.4
+        },
+        "sb-synaq": {
+          "cpu_pct_max": 53.25,
+          "mem_mib_max": 38.3,
+          "cpu_pct_avg": 36.1
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 0.0,
+          "mem_mib_max": 3.5,
+          "cpu_pct_avg": 0.0
+        },
+        "sb-postgres-app": {
+          "cpu_pct_max": 8.35,
+          "mem_mib_max": 31.7,
+          "cpu_pct_avg": 1.0
+        },
+        "sb-postgres-zitadel": {
+          "cpu_pct_max": 8.91,
+          "mem_mib_max": 60.3,
+          "cpu_pct_avg": 1.5
+        }
+      }
+    },
+    {
+      "target_rps": 3000,
+      "achieved_rps": 3000.0,
+      "requests": 89999,
+      "p50_ms": 0.323322,
+      "p90_ms": 0.5067757999999999,
+      "p95_ms": 0.8265739999999997,
+      "p99_ms": 2.244654440000005,
+      "max_ms": 19.229577,
+      "avg_ms": 0.39294154145045895,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 0.323322,
+        "p95": 0.8265739999999997,
+        "p99": 2.244654440000005
+      },
+      "variants_requests": 89999,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "h3000b",
+      "kind": "half",
+      "rate": 3000,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 41.48,
+          "mem_mib_max": 8.5,
+          "cpu_pct_avg": 30.1
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 92.41,
+          "mem_mib_max": 92.6,
+          "cpu_pct_avg": 10.8
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 8.99,
+          "mem_mib_max": 48.4,
+          "cpu_pct_avg": 0.8
+        },
+        "sb-synaq": {
+          "cpu_pct_max": 47.96,
+          "mem_mib_max": 34.3,
+          "cpu_pct_avg": 30.5
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 0.0,
+          "mem_mib_max": 3.3,
+          "cpu_pct_avg": 0.0
+        },
+        "sb-postgres-app": {
+          "cpu_pct_max": 8.4,
+          "mem_mib_max": 32.0,
+          "cpu_pct_avg": 1.4
+        },
+        "sb-postgres-zitadel": {
+          "cpu_pct_max": 1.12,
+          "mem_mib_max": 60.3,
+          "cpu_pct_avg": 0.3
+        }
+      }
+    },
+    {
+      "target_rps": 6000,
+      "achieved_rps": 5993.9,
+      "requests": 179816,
+      "p50_ms": 0.463503,
+      "p90_ms": 3.9524920000000003,
+      "p95_ms": 11.53453825,
+      "p99_ms": 57.7896790000001,
+      "max_ms": 225.093113,
+      "avg_ms": 2.753480659079344,
+      "error_rate": 0.0,
+      "dropped_iterations": 185,
+      "dropped_share": 0.00103,
+      "variants_ms": {
+        "p50": 0.463503,
+        "p95": 11.53453825,
+        "p99": 57.7896790000001
+      },
+      "variants_requests": 179816,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "k6000b",
+      "kind": "knee",
+      "rate": 6000,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 75.43,
+          "mem_mib_max": 13.6,
+          "cpu_pct_avg": 47.7
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 29.01,
+          "mem_mib_max": 129.1,
+          "cpu_pct_avg": 4.8
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 4.04,
+          "mem_mib_max": 48.3,
+          "cpu_pct_avg": 0.4
+        },
+        "sb-synaq": {
+          "cpu_pct_max": 72.36,
+          "mem_mib_max": 40.5,
+          "cpu_pct_avg": 53.5
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 7.24,
+          "mem_mib_max": 3.7,
+          "cpu_pct_avg": 0.9
+        },
+        "sb-postgres-app": {
+          "cpu_pct_max": 8.34,
+          "mem_mib_max": 31.7,
+          "cpu_pct_avg": 1.1
+        },
+        "sb-postgres-zitadel": {
+          "cpu_pct_max": 4.22,
+          "mem_mib_max": 66.4,
+          "cpu_pct_avg": 1.7
+        }
+      }
+    },
+    {
+      "target_rps": 100,
+      "achieved_rps": 100.0,
+      "requests": 3000,
+      "p50_ms": 0.454472,
+      "p90_ms": 0.5776378999999999,
+      "p95_ms": 0.65070005,
+      "p99_ms": 1.2330329699999887,
+      "max_ms": 3.438088,
+      "avg_ms": 0.48265976399999955,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 0.454472,
+        "p95": 0.65070005,
+        "p99": 1.2330329699999887
+      },
+      "variants_requests": 3000,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "l100",
+      "kind": "ladder",
+      "rate": 100,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 2.01,
+          "mem_mib_max": 6.5,
+          "cpu_pct_avg": 1.7
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 70.74,
+          "mem_mib_max": 98.4,
+          "cpu_pct_avg": 10.3
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 6.09,
+          "mem_mib_max": 48.4,
+          "cpu_pct_avg": 0.6
+        },
+        "sb-synaq": {
+          "cpu_pct_max": 7.65,
+          "mem_mib_max": 27.3,
+          "cpu_pct_avg": 3.0
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 4.78,
+          "mem_mib_max": 3.5,
+          "cpu_pct_avg": 0.6
+        },
+        "sb-postgres-app": {
+          "cpu_pct_max": 6.16,
+          "mem_mib_max": 32.3,
+          "cpu_pct_avg": 1.0
+        },
+        "sb-postgres-zitadel": {
+          "cpu_pct_max": 6.47,
+          "mem_mib_max": 72.0,
+          "cpu_pct_avg": 0.9
+        }
+      }
+    },
+    {
+      "target_rps": 1000,
+      "achieved_rps": 1000.0,
+      "requests": 30001,
+      "p50_ms": 0.353616,
+      "p90_ms": 0.466415,
+      "p95_ms": 0.582941,
+      "p99_ms": 1.451893,
+      "max_ms": 7.280423,
+      "avg_ms": 0.36776937675410715,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 0.353616,
+        "p95": 0.582941,
+        "p99": 1.451893
+      },
+      "variants_requests": 30001,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "l1000",
+      "kind": "ladder",
+      "rate": 1000,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 14.0,
+          "mem_mib_max": 6.6,
+          "cpu_pct_avg": 11.7
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 18.33,
+          "mem_mib_max": 116.5,
+          "cpu_pct_avg": 1.9
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 7.1,
+          "mem_mib_max": 48.2,
+          "cpu_pct_avg": 0.7
+        },
+        "sb-synaq": {
+          "cpu_pct_max": 22.47,
+          "mem_mib_max": 22.3,
+          "cpu_pct_avg": 15.5
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 5.5,
+          "mem_mib_max": 3.5,
+          "cpu_pct_avg": 1.4
+        },
+        "sb-postgres-app": {
+          "cpu_pct_max": 7.57,
+          "mem_mib_max": 32.3,
+          "cpu_pct_avg": 1.4
+        },
+        "sb-postgres-zitadel": {
+          "cpu_pct_max": 8.32,
+          "mem_mib_max": 68.2,
+          "cpu_pct_avg": 1.7
+        }
+      }
+    },
+    {
+      "target_rps": 1500,
+      "achieved_rps": 1500.1,
+      "requests": 45002,
+      "p50_ms": 0.3688445,
+      "p90_ms": 0.5093419000000001,
+      "p95_ms": 0.6554484499999996,
+      "p99_ms": 1.81444521,
+      "max_ms": 8.726301,
+      "avg_ms": 0.4118126829029821,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 0.3688445,
+        "p95": 0.6554484499999996,
+        "p99": 1.81444521
+      },
+      "variants_requests": 45002,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "l1500",
+      "kind": "ladder",
+      "rate": 1500,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 17.01,
+          "mem_mib_max": 7.3,
+          "cpu_pct_avg": 13.9
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 70.75,
+          "mem_mib_max": 139.3,
+          "cpu_pct_avg": 9.1
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 7.56,
+          "mem_mib_max": 48.4,
+          "cpu_pct_avg": 0.7
+        },
+        "sb-synaq": {
+          "cpu_pct_max": 28.86,
+          "mem_mib_max": 22.4,
+          "cpu_pct_avg": 19.4
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 0.65,
+          "mem_mib_max": 3.5,
+          "cpu_pct_avg": 0.1
+        },
+        "sb-postgres-app": {
+          "cpu_pct_max": 7.88,
+          "mem_mib_max": 32.1,
+          "cpu_pct_avg": 1.3
+        },
+        "sb-postgres-zitadel": {
+          "cpu_pct_max": 9.12,
+          "mem_mib_max": 66.6,
+          "cpu_pct_avg": 1.2
+        }
+      }
+    },
+    {
+      "target_rps": 200,
+      "achieved_rps": 200.0,
+      "requests": 6001,
+      "p50_ms": 0.39597,
+      "p90_ms": 0.508488,
+      "p95_ms": 0.576954,
+      "p99_ms": 1.057449,
+      "max_ms": 4.629187,
+      "avg_ms": 0.4241406705549074,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 0.39597,
+        "p95": 0.576954,
+        "p99": 1.057449
+      },
+      "variants_requests": 6001,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "l200",
+      "kind": "ladder",
+      "rate": 200,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 3.23,
+          "mem_mib_max": 6.8,
+          "cpu_pct_avg": 2.9
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 51.42,
+          "mem_mib_max": 136.9,
+          "cpu_pct_avg": 4.7
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 6.31,
+          "mem_mib_max": 48.5,
+          "cpu_pct_avg": 0.6
+        },
+        "sb-synaq": {
+          "cpu_pct_max": 9.03,
+          "mem_mib_max": 23.6,
+          "cpu_pct_avg": 4.0
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 0.0,
+          "mem_mib_max": 3.4,
+          "cpu_pct_avg": 0.0
+        },
+        "sb-postgres-app": {
+          "cpu_pct_max": 6.85,
+          "mem_mib_max": 31.9,
+          "cpu_pct_avg": 1.2
+        },
+        "sb-postgres-zitadel": {
+          "cpu_pct_max": 7.99,
+          "mem_mib_max": 72.0,
+          "cpu_pct_avg": 1.8
+        }
+      }
+    },
+    {
+      "target_rps": 2000,
+      "achieved_rps": 2000.0,
+      "requests": 60000,
+      "p50_ms": 0.370147,
+      "p90_ms": 0.6044859999999999,
+      "p95_ms": 0.70542905,
+      "p99_ms": 1.8358510000000006,
+      "max_ms": 14.528752,
+      "avg_ms": 0.4340647373499996,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 0.370147,
+        "p95": 0.70542905,
+        "p99": 1.8358510000000006
+      },
+      "variants_requests": 60000,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "l2000",
+      "kind": "ladder",
+      "rate": 2000,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 29.43,
+          "mem_mib_max": 7.6,
+          "cpu_pct_avg": 23.1
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 47.55,
+          "mem_mib_max": 120.6,
+          "cpu_pct_avg": 7.5
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 0.35,
+          "mem_mib_max": 48.2,
+          "cpu_pct_avg": 0.1
+        },
+        "sb-synaq": {
+          "cpu_pct_max": 36.14,
+          "mem_mib_max": 20.7,
+          "cpu_pct_avg": 26.8
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 0.0,
+          "mem_mib_max": 3.4,
+          "cpu_pct_avg": 0.0
+        },
+        "sb-postgres-app": {
+          "cpu_pct_max": 8.44,
+          "mem_mib_max": 32.0,
+          "cpu_pct_avg": 1.5
+        },
+        "sb-postgres-zitadel": {
+          "cpu_pct_max": 8.03,
+          "mem_mib_max": 66.7,
+          "cpu_pct_avg": 1.6
+        }
+      }
+    },
+    {
+      "target_rps": 300,
+      "achieved_rps": 300.0,
+      "requests": 9001,
+      "p50_ms": 0.366467,
+      "p90_ms": 0.483503,
+      "p95_ms": 0.555496,
+      "p99_ms": 0.851692,
+      "max_ms": 4.036481,
+      "avg_ms": 0.37933437451394386,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 0.366467,
+        "p95": 0.555496,
+        "p99": 0.851692
+      },
+      "variants_requests": 9001,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "l300",
+      "kind": "ladder",
+      "rate": 300,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 5.04,
+          "mem_mib_max": 6.9,
+          "cpu_pct_avg": 4.0
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 71.46,
+          "mem_mib_max": 92.4,
+          "cpu_pct_avg": 12.2
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 2.93,
+          "mem_mib_max": 48.2,
+          "cpu_pct_avg": 0.3
+        },
+        "sb-synaq": {
+          "cpu_pct_max": 6.0,
+          "mem_mib_max": 22.0,
+          "cpu_pct_avg": 5.2
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 0.0,
+          "mem_mib_max": 3.4,
+          "cpu_pct_avg": 0.0
+        },
+        "sb-postgres-app": {
+          "cpu_pct_max": 6.39,
+          "mem_mib_max": 32.0,
+          "cpu_pct_avg": 0.8
+        },
+        "sb-postgres-zitadel": {
+          "cpu_pct_max": 6.82,
+          "mem_mib_max": 72.2,
+          "cpu_pct_avg": 1.2
+        }
+      }
+    },
+    {
+      "target_rps": 3000,
+      "achieved_rps": 3000.0,
+      "requests": 90001,
+      "p50_ms": 0.348407,
+      "p90_ms": 0.676005,
+      "p95_ms": 1.092941,
+      "p99_ms": 2.674338,
+      "max_ms": 36.064104,
+      "avg_ms": 0.4534955348273872,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 0.348407,
+        "p95": 1.092941,
+        "p99": 2.674338
+      },
+      "variants_requests": 90001,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "l3000",
+      "kind": "ladder",
+      "rate": 3000,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 42.11,
+          "mem_mib_max": 8.3,
+          "cpu_pct_avg": 32.1
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 70.53,
+          "mem_mib_max": 139.3,
+          "cpu_pct_avg": 9.3
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 9.24,
+          "mem_mib_max": 48.4,
+          "cpu_pct_avg": 0.9
+        },
+        "sb-synaq": {
+          "cpu_pct_max": 54.06,
+          "mem_mib_max": 23.4,
+          "cpu_pct_avg": 35.6
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 2.51,
+          "mem_mib_max": 4.0,
+          "cpu_pct_avg": 0.2
+        },
+        "sb-postgres-app": {
+          "cpu_pct_max": 3.13,
+          "mem_mib_max": 32.0,
+          "cpu_pct_avg": 0.6
+        },
+        "sb-postgres-zitadel": {
+          "cpu_pct_max": 8.83,
+          "mem_mib_max": 66.6,
+          "cpu_pct_avg": 1.5
+        }
+      }
+    },
+    {
+      "target_rps": 400,
+      "achieved_rps": 400.0,
+      "requests": 12001,
+      "p50_ms": 0.371376,
+      "p90_ms": 0.466082,
+      "p95_ms": 0.534397,
+      "p99_ms": 0.878824,
+      "max_ms": 3.545431,
+      "avg_ms": 0.3811904880426606,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 0.371376,
+        "p95": 0.534397,
+        "p99": 0.878824
+      },
+      "variants_requests": 12001,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "l400",
+      "kind": "ladder",
+      "rate": 400,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 5.95,
+          "mem_mib_max": 7.0,
+          "cpu_pct_avg": 5.2
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 9.57,
+          "mem_mib_max": 112.0,
+          "cpu_pct_avg": 1.9
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 2.98,
+          "mem_mib_max": 48.2,
+          "cpu_pct_avg": 0.6
+        },
+        "sb-synaq": {
+          "cpu_pct_max": 7.83,
+          "mem_mib_max": 22.1,
+          "cpu_pct_avg": 6.6
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 5.11,
+          "mem_mib_max": 3.4,
+          "cpu_pct_avg": 1.3
+        },
+        "sb-postgres-app": {
+          "cpu_pct_max": 6.52,
+          "mem_mib_max": 32.3,
+          "cpu_pct_avg": 1.0
+        },
+        "sb-postgres-zitadel": {
+          "cpu_pct_max": 4.33,
+          "mem_mib_max": 76.8,
+          "cpu_pct_avg": 1.1
+        }
+      }
+    },
+    {
+      "target_rps": 4000,
+      "achieved_rps": 4000.0,
+      "requests": 120001,
+      "p50_ms": 0.316718,
+      "p90_ms": 0.503736,
+      "p95_ms": 0.632956,
+      "p99_ms": 2.934134,
+      "max_ms": 50.757936,
+      "avg_ms": 0.4176067690935913,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 0.316718,
+        "p95": 0.632956,
+        "p99": 2.934134
+      },
+      "variants_requests": 120001,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "l4000",
+      "kind": "ladder",
+      "rate": 4000,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 55.83,
+          "mem_mib_max": 9.5,
+          "cpu_pct_avg": 35.2
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 36.82,
+          "mem_mib_max": 146.1,
+          "cpu_pct_avg": 5.5
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 0.13,
+          "mem_mib_max": 48.2,
+          "cpu_pct_avg": 0.1
+        },
+        "sb-synaq": {
+          "cpu_pct_max": 59.69,
+          "mem_mib_max": 24.4,
+          "cpu_pct_avg": 35.0
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 2.79,
+          "mem_mib_max": 3.4,
+          "cpu_pct_avg": 0.5
+        },
+        "sb-postgres-app": {
+          "cpu_pct_max": 8.63,
+          "mem_mib_max": 32.2,
+          "cpu_pct_avg": 1.0
+        },
+        "sb-postgres-zitadel": {
+          "cpu_pct_max": 8.35,
+          "mem_mib_max": 66.5,
+          "cpu_pct_avg": 1.0
+        }
+      }
+    },
+    {
+      "target_rps": 500,
+      "achieved_rps": 500.0,
+      "requests": 15000,
+      "p50_ms": 0.3776985,
+      "p90_ms": 0.4699060000000001,
+      "p95_ms": 0.5404995499999999,
+      "p99_ms": 1.072643080000001,
+      "max_ms": 4.982467,
+      "avg_ms": 0.39666086039999915,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 0.3776985,
+        "p95": 0.5404995499999999,
+        "p99": 1.072643080000001
+      },
+      "variants_requests": 15000,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "l500",
+      "kind": "ladder",
+      "rate": 500,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 7.77,
+          "mem_mib_max": 6.7,
+          "cpu_pct_avg": 6.2
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 74.99,
+          "mem_mib_max": 92.5,
+          "cpu_pct_avg": 6.6
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 6.59,
+          "mem_mib_max": 48.3,
+          "cpu_pct_avg": 0.6
+        },
+        "sb-synaq": {
+          "cpu_pct_max": 14.15,
+          "mem_mib_max": 22.2,
+          "cpu_pct_avg": 8.7
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 2.11,
+          "mem_mib_max": 3.5,
+          "cpu_pct_avg": 0.2
+        },
+        "sb-postgres-app": {
+          "cpu_pct_max": 7.35,
+          "mem_mib_max": 32.0,
+          "cpu_pct_avg": 1.1
+        },
+        "sb-postgres-zitadel": {
+          "cpu_pct_max": 7.57,
+          "mem_mib_max": 72.5,
+          "cpu_pct_avg": 1.1
+        }
+      }
+    },
+    {
+      "target_rps": 600,
+      "achieved_rps": 600.0,
+      "requests": 18000,
+      "p50_ms": 0.354246,
+      "p90_ms": 0.4269489,
+      "p95_ms": 0.47006854999999986,
+      "p99_ms": 0.657223809999999,
+      "max_ms": 3.42354,
+      "avg_ms": 0.33133112899999906,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 0.354246,
+        "p95": 0.47006854999999986,
+        "p99": 0.657223809999999
+      },
+      "variants_requests": 18000,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "l600",
+      "kind": "ladder",
+      "rate": 600,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 9.51,
+          "mem_mib_max": 6.8,
+          "cpu_pct_avg": 7.1
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 11.2,
+          "mem_mib_max": 118.7,
+          "cpu_pct_avg": 1.3
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 3.31,
+          "mem_mib_max": 48.2,
+          "cpu_pct_avg": 0.4
+        },
+        "sb-synaq": {
+          "cpu_pct_max": 10.71,
+          "mem_mib_max": 22.2,
+          "cpu_pct_avg": 8.4
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 0.0,
+          "mem_mib_max": 3.4,
+          "cpu_pct_avg": 0.0
+        },
+        "sb-postgres-app": {
+          "cpu_pct_max": 6.31,
+          "mem_mib_max": 32.0,
+          "cpu_pct_avg": 1.6
+        },
+        "sb-postgres-zitadel": {
+          "cpu_pct_max": 7.09,
+          "mem_mib_max": 72.8,
+          "cpu_pct_avg": 2.3
+        }
+      }
+    },
+    {
+      "target_rps": 6000,
+      "achieved_rps": 6000.1,
+      "requests": 180002,
+      "p50_ms": 0.162372,
+      "p90_ms": 0.7615740999999999,
+      "p95_ms": 1.2279710499999994,
+      "p99_ms": 30.68658865999999,
+      "max_ms": 130.588501,
+      "avg_ms": 1.0560846466317078,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 0.162372,
+        "p95": 1.2279710499999994,
+        "p99": 30.68658865999999
+      },
+      "variants_requests": 180002,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "l6000",
+      "kind": "ladder",
+      "rate": 6000,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 72.48,
+          "mem_mib_max": 11.3,
+          "cpu_pct_avg": 39.3
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 47.46,
+          "mem_mib_max": 92.6,
+          "cpu_pct_avg": 6.9
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 4.32,
+          "mem_mib_max": 48.5,
+          "cpu_pct_avg": 0.9
+        },
+        "sb-synaq": {
+          "cpu_pct_max": 71.0,
+          "mem_mib_max": 30.5,
+          "cpu_pct_avg": 45.6
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 0.0,
+          "mem_mib_max": 3.8,
+          "cpu_pct_avg": 0.0
+        },
+        "sb-postgres-app": {
+          "cpu_pct_max": 8.33,
+          "mem_mib_max": 32.1,
+          "cpu_pct_avg": 1.4
+        },
+        "sb-postgres-zitadel": {
+          "cpu_pct_max": 7.83,
+          "mem_mib_max": 62.5,
+          "cpu_pct_avg": 0.8
+        }
+      }
+    },
+    {
+      "target_rps": 800,
+      "achieved_rps": 800.0,
+      "requests": 24001,
+      "p50_ms": 0.328248,
+      "p90_ms": 0.414748,
+      "p95_ms": 0.470602,
+      "p99_ms": 0.817896,
+      "max_ms": 3.858458,
+      "avg_ms": 0.3094950022915718,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 0.328248,
+        "p95": 0.470602,
+        "p99": 0.817896
+      },
+      "variants_requests": 24001,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "l800",
+      "kind": "ladder",
+      "rate": 800,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 10.99,
+          "mem_mib_max": 6.8,
+          "cpu_pct_avg": 8.2
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 2.52,
+          "mem_mib_max": 98.2,
+          "cpu_pct_avg": 0.6
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 6.89,
+          "mem_mib_max": 48.4,
+          "cpu_pct_avg": 0.9
+        },
+        "sb-synaq": {
+          "cpu_pct_max": 19.15,
+          "mem_mib_max": 22.2,
+          "cpu_pct_avg": 10.6
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 1.07,
+          "mem_mib_max": 10.7,
+          "cpu_pct_avg": 0.1
+        },
+        "sb-postgres-app": {
+          "cpu_pct_max": 6.82,
+          "mem_mib_max": 32.0,
+          "cpu_pct_avg": 1.2
+        },
+        "sb-postgres-zitadel": {
+          "cpu_pct_max": 3.2,
+          "mem_mib_max": 65.8,
+          "cpu_pct_avg": 0.7
+        }
+      }
+    },
+    {
+      "target_rps": 8000,
+      "achieved_rps": 7802.7,
+      "requests": 234080,
+      "p50_ms": 0.195383,
+      "p90_ms": 131.67206760000005,
+      "p95_ms": 173.85436109999986,
+      "p99_ms": 425.42058479999963,
+      "max_ms": 2089.779396,
+      "avg_ms": 37.74102515309304,
+      "error_rate": 0.00026,
+      "dropped_iterations": 5921,
+      "dropped_share": 0.02467,
+      "variants_ms": {
+        "p50": 0.195383,
+        "p95": 173.85436109999986,
+        "p99": 425.42058479999963
+      },
+      "variants_requests": 234080,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "l8000",
+      "kind": "ladder",
+      "rate": 8000,
+      "duration_s": 30,
+      "verdict": "p99=425мс, dropped=2.5%",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 77.99,
+          "mem_mib_max": 26.5,
+          "cpu_pct_avg": 52.5
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 54.19,
+          "mem_mib_max": 120.9,
+          "cpu_pct_avg": 8.1
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 4.43,
+          "mem_mib_max": 48.4,
+          "cpu_pct_avg": 0.8
+        },
+        "sb-synaq": {
+          "cpu_pct_max": 59.49,
+          "mem_mib_max": 67.8,
+          "cpu_pct_avg": 52.8
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 0.0,
+          "mem_mib_max": 3.4,
+          "cpu_pct_avg": 0.0
+        },
+        "sb-postgres-app": {
+          "cpu_pct_max": 4.36,
+          "mem_mib_max": 32.0,
+          "cpu_pct_avg": 1.1
+        },
+        "sb-postgres-zitadel": {
+          "cpu_pct_max": 4.26,
+          "mem_mib_max": 60.5,
+          "cpu_pct_avg": 0.6
+        }
+      }
+    },
+    {
+      "target_rps": 100,
+      "achieved_rps": 100.0,
+      "requests": 3001,
+      "p50_ms": 0.461468,
+      "p90_ms": 0.586077,
+      "p95_ms": 0.662328,
+      "p99_ms": 1.095625,
+      "max_ms": 4.898146,
+      "avg_ms": 0.4961511216261237,
+      "error_rate": 0.0,
+      "dropped_iterations": 0,
+      "dropped_share": 0.0,
+      "variants_ms": {
+        "p50": 0.461468,
+        "p95": 0.662328,
+        "p99": 1.095625
+      },
+      "variants_requests": 3001,
+      "trk_ok": 0,
+      "trk_ok_all": 0,
+      "trk_429": 0,
+      "trk_429_all": 0,
+      "trk_503": 0,
+      "trk_503_all": 0,
+      "trk_other": 0,
+      "trk_other_all": 0,
+      "label": "prewarm",
+      "kind": "prewarm",
+      "rate": 100,
+      "duration_s": 30,
+      "verdict": "OK",
+      "resources": {
+        "sb-gateway": {
+          "cpu_pct_max": 1.98,
+          "mem_mib_max": 6.9,
+          "cpu_pct_avg": 1.6
+        },
+        "sb-zitadel": {
+          "cpu_pct_max": 26.81,
+          "mem_mib_max": 126.7,
+          "cpu_pct_avg": 4.0
+        },
+        "sb-analytics_api": {
+          "cpu_pct_max": 6.13,
+          "mem_mib_max": 48.3,
+          "cpu_pct_avg": 0.6
+        },
+        "sb-synaq": {
+          "cpu_pct_max": 7.3,
+          "mem_mib_max": 25.0,
+          "cpu_pct_avg": 2.5
+        },
+        "sb-dashboard": {
+          "cpu_pct_max": 0.0,
+          "mem_mib_max": 3.4,
+          "cpu_pct_avg": 0.0
+        },
+        "sb-postgres-app": {
+          "cpu_pct_max": 7.17,
+          "mem_mib_max": 32.1,
+          "cpu_pct_avg": 1.1
+        },
+        "sb-postgres-zitadel": {
+          "cpu_pct_max": 6.2,
+          "mem_mib_max": 71.5,
+          "cpu_pct_avg": 1.5
+        }
+      }
+    }
+  ],
+  "integrity": null
+}
